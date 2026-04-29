@@ -20,17 +20,19 @@ jobs:
           - label: macOS Apple Silicon
             os: macos-15
             rust_target: aarch64-apple-darwin
-            build_args: --target aarch64-apple-darwin
+            build_args: --target aarch64-apple-darwin --bundles app
             artifact_name: fileshare-macos-arm64
-            artifact_path: |
-              src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+            artifact_path: release-assets/*.dmg
+            dmg_suffix: aarch64
+            app_path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/FileShare.app
           - label: macOS Intel
             os: macos-15-intel
             rust_target: x86_64-apple-darwin
-            build_args: --target x86_64-apple-darwin
+            build_args: --target x86_64-apple-darwin --bundles app
             artifact_name: fileshare-macos-intel
-            artifact_path: |
-              src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+            artifact_path: release-assets/*.dmg
+            dmg_suffix: x64
+            app_path: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/FileShare.app
           - label: Windows x86
             os: windows-latest
             rust_target: i686-pc-windows-msvc
@@ -66,6 +68,18 @@ jobs:
 
       - name: Build
         run: npm run build -- ${{ matrix.build_args }}
+
+      - name: Create DMG
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p release-assets
+          version="${GITHUB_REF_NAME#v}"
+          hdiutil create \
+            -volname "FileShare" \
+            -srcfolder "${{ matrix.app_path }}" \
+            -ov \
+            -format UDZO \
+            "release-assets/FileShare_${version}_${{ matrix.dmg_suffix }}.dmg"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
