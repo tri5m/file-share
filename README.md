@@ -43,3 +43,13 @@ npm run build
 ```
 
 打包完成后，产物默认会出现在 `src-tauri/target/release/bundle/` 目录下。
+
+## 自动发布
+
+仓库包含 GitHub Actions 发布流程。推送 `v*` 标签时，会自动构建：
+
+- macOS Apple Silicon `.dmg`
+- macOS Intel `.dmg`
+- Windows x86 安装包
+
+构建完成后，产物会上传到对应的 GitHub Release。
