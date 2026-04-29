@@ -10,6 +10,14 @@
 
 [GitHub Releases](https://github.com/tri5m/file-share/releases)
 
+macOS 如果提示“FileShare 已损坏，无法打开”，通常是因为应用未签名或未公证。可以先把应用拖到 `/Applications`，然后执行：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/FileShare.app
+```
+
+再重新打开应用。
+
 ## 开发环境
 
 - Node.js
