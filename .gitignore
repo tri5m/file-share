@@ -3,6 +3,6 @@ target/
 src-tauri/target/
 dist/
 data/items.json
+src-tauri/data/items.json
 .DS_Store
 *.log
-

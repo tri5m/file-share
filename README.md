@@ -4,6 +4,12 @@
 
 管理端是本机桌面应用，客户端是局域网内可访问的 Web 页面。管理端可以共享本机文件和发布文本；客户端可以上传文件到服务端用户的 `Downloads` 目录，也可以发布文本。双方的共享列表会实时同步。
 
+## 下载
+
+如果你只是想直接使用应用，请前往 GitHub Releases 页面下载已经打包好的安装包：
+
+[GitHub Releases](https://github.com/tri5m/file-share/releases)
+
 ## 开发环境
 
 - Node.js
@@ -35,3 +41,5 @@ npm run dev
 ```bash
 npm run build
 ```
+
+打包完成后，产物默认会出现在 `src-tauri/target/release/bundle/` 目录下。
