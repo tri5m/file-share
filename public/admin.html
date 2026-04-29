@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>文件共享</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="topbar admin">
+      <div>
+        <h1>文件共享</h1>
+      </div>
+      <div class="top-actions">
+        <div class="client-share">
+          <button id="clientQrButton" class="client-qr-button" type="button" aria-label="放大查看二维码">
+            <div id="clientQr" class="client-qr"></div>
+          </button>
+          <div class="client-link-box">
+            <span id="clientUrlText">加载客户端链接</span>
+            <button id="copyClientUrl" class="nav-link" type="button">复制链接</button>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout single">
+      <section id="serverPanel" class="panel server-panel">
+        <div class="server-copy">
+          <h2>启动服务</h2>
+          <p>指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
+        </div>
+        <form id="serverForm" class="server-form">
+          <input id="serverPort" type="number" min="1024" max="65535" value="5421" placeholder="端口号">
+          <button id="startServerButton" type="submit">启动服务</button>
+        </form>
+      </section>
+
+      <section class="panel list-panel">
+        <div class="section-head">
+          <h2>共享列表</h2>
+          <div class="list-actions">
+            <span id="status">连接中</span>
+            <button class="header-button text-action" data-open="textDialog">📝 发布文本</button>
+            <button class="header-button file-action" data-open="fileDialog">📁 共享文件</button>
+          </div>
+        </div>
+        <div id="items" class="items"></div>
+      </section>
+    </main>
+
+    <dialog id="textDialog" class="modal" data-focus="#textContent">
+      <form method="dialog" class="modal-shell">
+        <div class="modal-head">
+          <h2>发布文本</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+        </div>
+      </form>
+      <div class="modal-body">
+        <form id="textForm" class="stack">
+          <textarea id="textContent" name="content" placeholder="输入要共享的文本"></textarea>
+          <button type="submit">发布文本</button>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id="fileDialog" class="modal">
+      <form method="dialog" class="modal-shell">
+        <div class="modal-head">
+          <h2>共享文件</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+        </div>
+      </form>
+      <div class="modal-body">
+        <form id="fileForm" class="stack">
+          <div id="dropZone" class="upload-drop upload-drop-static">
+            <span class="upload-icon">↑</span>
+            <strong>使用系统文件选择器共享本机文件</strong>
+            <small id="fileHint">选择后会直接共享本机文件路径，不会复制到应用目录</small>
+          </div>
+          <button id="pickAdminFilesButton" type="button">选择并共享文件</button>
+        </form>
+      </div>
+    </dialog>
+
+    <dialog id="qrDialog" class="modal qr-modal">
+      <form method="dialog" class="modal-shell">
+        <div class="modal-head">
+          <h2>二维码</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+        </div>
+      </form>
+      <div class="modal-body qr-modal-body">
+        <div id="qrDialogPreview" class="qr-dialog-preview"></div>
+        <div class="client-link-box qr-dialog-link">
+          <span id="qrDialogUrlText"></span>
+          <button id="qrDialogCopyButton" class="nav-link" type="button">复制链接</button>
+        </div>
+      </div>
+    </dialog>
+
+    <script src="/app.js"></script>
+    <script>
+      window.FileShareApp.init({ role: 'admin' });
+    </script>
+  </body>
+</html>
