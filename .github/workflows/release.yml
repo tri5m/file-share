@@ -42,11 +42,16 @@ jobs:
           - label: Windows x86
             os: windows-latest
             rust_target: i686-pc-windows-msvc
-            build_args: --target i686-pc-windows-msvc --bundles nsis
+            build_args: --target i686-pc-windows-msvc
             artifact_name: fileshare-windows-x86
             artifact_path: |
               src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe
               src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe.sig
+              release-assets/*.json
+            release_artifact_path: |
+              src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe
+              src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe.sig
+              src-tauri/target/i686-pc-windows-msvc/release/bundle/msi/*.msi
               release-assets/*.json
             updater_platform: windows-i686
             latest_name: latest-windows-i686.json
@@ -111,7 +116,13 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ runner.temp }}/tauri-signing.key
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: npm run build -- ${{ matrix.build_args }}
+        shell: bash
+        run: |
+          build_args="${{ matrix.build_args }}"
+          if [ "${{ runner.os }}" = "Windows" ] && [[ "$GITHUB_REF_NAME" == *rc* ]]; then
+            build_args="$build_args --bundles nsis"
+          fi
+          npm run build -- $build_args
 
       - name: Create DMG
         if: runner.os == 'macOS'
@@ -162,5 +173,5 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.artifact_path }}
+          files: ${{ matrix.release_artifact_path || matrix.artifact_path }}
           prerelease: ${{ contains(github.ref_name, 'rc') }}
