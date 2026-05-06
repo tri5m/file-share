@@ -36,6 +36,11 @@
     ],
     "category": "Productivity",
     "shortDescription": "LAN file sharing",
-    "longDescription": "A lightweight LAN file sharing app with client and admin pages."
+    "longDescription": "A lightweight LAN file sharing app with client and admin pages.",
+    "windows": {
+      "wix": {
+        "language": "zh-CN"
+      }
+    }
   }
 }
