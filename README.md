@@ -40,7 +40,7 @@ npm run dev
 
 启动后会打开 Tauri 管理端窗口。输入端口并点击“启动服务”后，客户端才可以通过局域网地址访问。
 
-桌面端在 macOS 菜单栏和 Windows 系统托盘中提供后台入口。关闭窗口不会退出应用，需要通过托盘菜单里的“退出”真正关闭。
+桌面端在 macOS 菜单栏和 Windows 系统托盘中提供后台入口。
 
 开发模式说明：
 
@@ -60,7 +60,7 @@ npm run build
 
 GitHub Actions 发布前，需要在仓库 Settings -> Secrets and variables -> Actions 中添加：
 
-- `TAURI_SIGNING_PRIVATE_KEY`：`.updater/file-share.key` 的完整内容
+- `TAURI_SIGNING_PRIVATE_KEY`：`.updater/file-share.key` 的原始完整内容，直接复制文件里的 base64 字符串，不要解码，也不要使用 `.updater/file-share.key.pub`
 - `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：如果私钥设置了密码再填写；当前生成的私钥没有密码，可以不填
 
 ## 自动发布

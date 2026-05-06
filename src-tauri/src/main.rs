@@ -7,8 +7,10 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
     tray::{TrayIcon, TrayIconBuilder},
-    ActivationPolicy, AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry,
+    AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry,
 };
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 
 const DEFAULT_PORT: u16 = 5421;
 const TRAY_TOGGLE_SHARE_ID: &str = "toggle-share";

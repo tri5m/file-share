@@ -76,9 +76,40 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      - name: Prepare updater signing key
+        shell: bash
+        run: |
+          if [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]; then
+            echo "TAURI_SIGNING_PRIVATE_KEY secret is required" >&2
+            exit 1
+          fi
+          node - <<'NODE'
+          const key = process.env.TAURI_SIGNING_PRIVATE_KEY.trim();
+          const decoded = Buffer.from(key, 'base64').toString('utf8');
+          const firstLine = decoded.split(/\r?\n/, 1)[0] || '';
+
+          if (!firstLine.startsWith('untrusted comment:')) {
+            console.error('TAURI_SIGNING_PRIVATE_KEY must be the full content of .updater/file-share.key.');
+            process.exit(1);
+          }
+
+          if (firstLine.includes('public key')) {
+            console.error('TAURI_SIGNING_PRIVATE_KEY is a public key. Use .updater/file-share.key, not .updater/file-share.key.pub.');
+            process.exit(1);
+          }
+
+          if (!firstLine.includes('secret key')) {
+            console.error('TAURI_SIGNING_PRIVATE_KEY is not an updater secret key.');
+            process.exit(1);
+          }
+          NODE
+          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > "$RUNNER_TEMP/tauri-signing.key"
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY_PATH: ${{ runner.temp }}/tauri-signing.key
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run build -- ${{ matrix.build_args }}
 
