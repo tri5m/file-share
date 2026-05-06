@@ -31,6 +31,7 @@ mkdir -p "$(dirname "$output_path")"
 cp -R "$app_path" "$staging_dir/FileShare.app"
 cp "$repair_tool" "$staging_dir/损坏修复"
 chmod +x "$staging_dir/损坏修复"
+ln -s /Applications "$staging_dir/Applications"
 
 hdiutil create \
   -volname "FileShare" \

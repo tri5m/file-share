@@ -6,7 +6,7 @@ use std::{path::PathBuf, sync::Mutex};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
-    tray::{TrayIcon, TrayIconBuilder},
+    tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry,
 };
 #[cfg(target_os = "macos")]
@@ -176,12 +176,22 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     let show = MenuItem::with_id(app, TRAY_SHOW_ID, "显示窗口", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &toggle_share, &check_update, &quit])?;
-    let icon = tray_icon().or_else(|| app.default_window_icon().cloned());
+    let icon = platform_tray_icon().or_else(|| app.default_window_icon().cloned());
 
     let mut tray = TrayIconBuilder::new()
         .menu(&menu)
         .tooltip("FileShare")
-        .show_menu_on_left_click(true)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        })
         .on_menu_event(|app, event| match event.id().as_ref() {
             TRAY_TOGGLE_SHARE_ID => {
                 let app = app.clone();
@@ -236,6 +246,18 @@ fn tray_icon() -> Option<Image<'static>> {
         .map(Image::to_owned)
 }
 
+#[cfg(target_os = "windows")]
+fn platform_tray_icon() -> Option<Image<'static>> {
+    Image::from_bytes(include_bytes!("../icons/32x32.png"))
+        .ok()
+        .map(Image::to_owned)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn platform_tray_icon() -> Option<Image<'static>> {
+    tray_icon()
+}
+
 fn inactive_tray_icon() -> Option<Image<'static>> {
     tray_icon().map(|icon| {
         let rgba = icon
@@ -246,7 +268,7 @@ fn inactive_tray_icon() -> Option<Image<'static>> {
                     pixel[0],
                     pixel[1],
                     pixel[2],
-                    ((pixel[3] as f32) * 0.38).round() as u8,
+                    ((pixel[3] as f32) * 0.70).round() as u8,
                 ]
             })
             .collect::<Vec<_>>();
@@ -363,11 +385,10 @@ fn set_tray_share_running(app: &AppHandle, running: bool) {
         } else {
             "启动分享"
         });
-        let icon = if running {
-            tray_icon()
-        } else {
-            inactive_tray_icon()
-        };
+        #[cfg(target_os = "macos")]
+        let icon = if running { tray_icon() } else { inactive_tray_icon() };
+        #[cfg(not(target_os = "macos"))]
+        let icon = platform_tray_icon();
         let _ = tray.set_icon(icon);
         #[cfg(target_os = "macos")]
         {
