@@ -42,12 +42,11 @@ jobs:
           - label: Windows x86
             os: windows-latest
             rust_target: i686-pc-windows-msvc
-            build_args: --target i686-pc-windows-msvc
+            build_args: --target i686-pc-windows-msvc --bundles nsis
             artifact_name: fileshare-windows-x86
             artifact_path: |
               src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe
               src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe.sig
-              src-tauri/target/i686-pc-windows-msvc/release/bundle/msi/*.msi
               release-assets/*.json
             updater_platform: windows-i686
             latest_name: latest-windows-i686.json
