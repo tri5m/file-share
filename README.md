@@ -10,13 +10,15 @@
 
 [GitHub Releases](https://github.com/tri5m/file-share/releases)
 
-macOS 如果提示“FileShare 已损坏，无法打开”，通常是因为应用未签名或未公证。可以先把应用拖到 `/Applications`，然后执行：
+macOS 如果提示“FileShare 已损坏，无法打开”，通常是因为应用未签名或未公证。可以先把应用拖到 `/Applications`，然后打开 macOS 自带的「终端」应用，在终端窗口中执行：
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/FileShare.app
 ```
 
-再重新打开应用。
+执行完成后，再重新打开应用。
+
+macOS `.dmg` 安装包内也会附带一个名为“损坏修复”的可执行文件。把 `FileShare.app` 拖到 `/Applications` 后，也可以双击这个文件完成同样的修复。
 
 ## 开发环境
 
@@ -38,6 +40,8 @@ npm run dev
 
 启动后会打开 Tauri 管理端窗口。输入端口并点击“启动服务”后，客户端才可以通过局域网地址访问。
 
+桌面端在 macOS 菜单栏和 Windows 系统托盘中提供后台入口。关闭窗口不会退出应用，需要通过托盘菜单里的“退出”真正关闭。
+
 开发模式说明：
 
 - 当前前端静态资源位于 `public/`
@@ -52,6 +56,13 @@ npm run build
 
 打包完成后，产物默认会出现在 `src-tauri/target/release/bundle/` 目录下。
 
+启用自动更新后，打包需要提供 Tauri updater 签名私钥。当前项目本机生成的私钥位于 `.updater/file-share.key`，这个目录已加入 `.gitignore`，不要提交到仓库。
+
+GitHub Actions 发布前，需要在仓库 Settings -> Secrets and variables -> Actions 中添加：
+
+- `TAURI_SIGNING_PRIVATE_KEY`：`.updater/file-share.key` 的完整内容
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`：如果私钥设置了密码再填写；当前生成的私钥没有密码，可以不填
+
 ## 自动发布
 
 仓库包含 GitHub Actions 发布流程。推送 `v*` 标签时，会自动构建：
@@ -59,5 +70,8 @@ npm run build
 - macOS Apple Silicon `.dmg`
 - macOS Intel `.dmg`
 - Windows x86 安装包
+- 自动更新所需的更新包、签名文件和 `latest-*.json`
 
 构建完成后，产物会上传到对应的 GitHub Release。
+
+已安装的桌面应用可以通过系统托盘菜单里的“检查更新”获取新版本。局域网 Web 客户端不需要单独更新，刷新页面即可使用当前桌面应用内置的新客户端页面。

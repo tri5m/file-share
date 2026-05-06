@@ -109,7 +109,13 @@ struct TextPayload {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        (self.status, Json(ErrorBody { error: self.message })).into_response()
+        (
+            self.status,
+            Json(ErrorBody {
+                error: self.message,
+            }),
+        )
+            .into_response()
     }
 }
 
@@ -229,22 +235,23 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| bind_error_message(port, error))?;
     let (shutdown_tx, shutdown_rx) = oneshot::channel::<()>();
 
     tokio::spawn(async move {
-        let server = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-            .with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            });
+        let server = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        });
         if let Err(error) = server.await {
             eprintln!("FileShare HTTP server failed: {error}");
         }
     });
 
-    SERVER_HANDLE
-        .set(Mutex::new(None))
-        .ok();
+    SERVER_HANDLE.set(Mutex::new(None)).ok();
     if let Some(handle) = SERVER_HANDLE.get() {
         *handle.lock().await = Some(RunningServer {
             shutdown: Some(shutdown_tx),
@@ -254,7 +261,8 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
     Ok(info)
 }
 
-static SERVER_HANDLE: std::sync::OnceLock<Mutex<Option<RunningServer>>> = std::sync::OnceLock::new();
+static SERVER_HANDLE: std::sync::OnceLock<Mutex<Option<RunningServer>>> =
+    std::sync::OnceLock::new();
 
 pub async fn stop() -> Result<(), String> {
     let Some(handle) = SERVER_HANDLE.get() else {
@@ -326,7 +334,11 @@ async fn share_info(State(state): State<AppState>) -> AppResult<Json<serde_json:
     Ok(Json(serde_json::json!(info)))
 }
 
-async fn sse_events(State(state): State<AppState>) -> Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>> {
+async fn sse_events(
+    State(state): State<AppState>,
+) -> Sse<
+    impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+> {
     let initial = public_items(&read_items(&state).await.unwrap_or_default());
     let mut receiver = state.events.subscribe();
     let stream = stream! {
@@ -388,7 +400,10 @@ async fn upload(
             continue;
         }
         if name == "file" {
-            let filename = field.file_name().map(safe_name).unwrap_or_else(|| "file".to_string());
+            let filename = field
+                .file_name()
+                .map(safe_name)
+                .unwrap_or_else(|| "file".to_string());
             let mime = field.content_type().map(|value| value.to_string());
             let data = field.bytes().await?.to_vec();
             if !data.is_empty() {
@@ -456,7 +471,9 @@ async fn add_local_files(
             kind: "file".to_string(),
             title,
             content: None,
-            mime: mime_guess::from_path(&path).first_raw().map(|value| value.to_string()),
+            mime: mime_guess::from_path(&path)
+                .first_raw()
+                .map(|value| value.to_string()),
             size: metadata.len(),
             source: "admin".to_string(),
             storage_path: path.to_string_lossy().to_string(),
@@ -493,7 +510,10 @@ async fn download(
         CONTENT_TYPE,
         HeaderValue::from_static("application/octet-stream"),
     );
-    headers.insert(CONTENT_LENGTH, HeaderValue::from_str(&data.len().to_string()).unwrap());
+    headers.insert(
+        CONTENT_LENGTH,
+        HeaderValue::from_str(&data.len().to_string()).unwrap(),
+    );
     headers.insert(
         CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!(
@@ -623,7 +643,7 @@ fn require_local_addr(state: &AppState, address: IpAddr) -> AppResult<()> {
 }
 
 fn server_info(port: u16, lan_ip: &str) -> Result<ServerInfo, qrcode::types::QrError> {
-    let url = format!("http://{}:{}/client.html", lan_ip, port);
+    let url = format!("http://{}:{}", lan_ip, port);
     let qr = QrCode::new(url.as_bytes())?
         .render::<svg::Color>()
         .min_dimensions(128, 128)
@@ -730,6 +750,14 @@ fn text_title(content: &str) -> String {
         "文本片段".to_string()
     } else {
         title
+    }
+}
+
+fn bind_error_message(port: u16, error: std::io::Error) -> String {
+    if error.kind() == std::io::ErrorKind::AddrInUse {
+        format!("端口 {port} 已被占用，请换一个端口或关闭占用该端口的程序")
+    } else {
+        format!("端口 {port} 启动失败：{error}")
     }
 }
 

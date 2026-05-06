@@ -6,7 +6,8 @@
     events: null,
     isTauri: false,
     serverRunning: false,
-    shareInfo: null
+    shareInfo: null,
+    statusTimer: null
   };
 
   function $(id) {
@@ -141,13 +142,17 @@
   }
 
   async function applyServerInfo(info) {
+    const wasRunning = state.serverRunning;
     state.apiBase = `http://127.0.0.1:${info.port}`;
     state.serverRunning = true;
     document.body.classList.remove('server-stopped');
     applyShareInfo(info);
+    setServerControlsRunning(info);
 
-    await loadItems();
-    connectEvents();
+    if (!wasRunning || !state.events || state.shareInfo?.port !== info.port) {
+      await loadItems();
+      connectEvents();
+    }
   }
 
   function applyShareInfo(info) {
@@ -186,6 +191,53 @@
     $('clientUrlText') && ($('clientUrlText').textContent = '服务未启动');
     $('status') && ($('status').textContent = '未启动');
     state.shareInfo = null;
+    setServerControlsStopped();
+  }
+
+  async function syncServerStatus() {
+    if (!state.isTauri || state.role !== 'admin' || !window.__TAURI__?.core?.invoke) return;
+
+    try {
+      const info = await window.__TAURI__.core.invoke('server_status');
+      if (info) {
+        await applyServerInfo(info);
+      } else if (state.serverRunning) {
+        resetServerUi();
+      }
+    } catch (error) {
+      console.warn('Failed to sync server status:', error);
+    }
+  }
+
+  function startServerStatusSync() {
+    if (state.statusTimer) return;
+    syncServerStatus();
+    state.statusTimer = window.setInterval(syncServerStatus, 1000);
+  }
+
+  function setServerControlsRunning(info) {
+    const portInput = $('serverPort');
+    const button = $('startServerButton');
+    if (portInput) {
+      portInput.value = info.port;
+      portInput.disabled = true;
+    }
+    if (button) {
+      button.disabled = false;
+      button.textContent = '停止分享';
+    }
+  }
+
+  function setServerControlsStopped() {
+    const portInput = $('serverPort');
+    const button = $('startServerButton');
+    if (portInput) {
+      portInput.disabled = false;
+    }
+    if (button) {
+      button.disabled = false;
+      button.textContent = '启动服务';
+    }
   }
 
   function bindServerControls() {
@@ -195,6 +247,13 @@
     if (!form || !portInput || !button) return;
 
     resetServerUi();
+    portInput.addEventListener('input', () => {
+      const port = Number(portInput.value);
+      if (Number.isInteger(port) && port > 0 && port <= 65535) {
+        window.__TAURI__.core.invoke('set_preferred_port', { port }).catch(() => {});
+      }
+    });
+
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (state.serverRunning) {
@@ -202,9 +261,6 @@
         button.textContent = '停止中';
         try {
           await window.__TAURI__.core.invoke('stop_server');
-          portInput.disabled = false;
-          button.disabled = false;
-          button.textContent = '启动服务';
           resetServerUi();
         } catch (error) {
           button.disabled = false;
@@ -224,9 +280,6 @@
       button.textContent = '启动中';
       try {
         const info = await window.__TAURI__.core.invoke('start_server', { port });
-        portInput.disabled = true;
-        button.disabled = false;
-        button.textContent = '停止分享';
         await applyServerInfo(info);
       } catch (error) {
         button.disabled = false;
@@ -303,6 +356,29 @@
       copyButton.textContent = copied ? '已复制' : '复制失败';
       setTimeout(() => { copyButton.textContent = '复制链接'; }, 1200);
     });
+  }
+
+  async function bindTauriEvents() {
+    const events = window.__TAURI__?.event;
+    if (!events?.listen) return;
+
+    try {
+      await events.listen('share-started', async (event) => {
+        try {
+          await applyServerInfo(event.payload);
+        } catch (error) {
+          alert(String(error));
+        }
+      });
+      await events.listen('share-stopped', () => {
+        resetServerUi();
+      });
+      await events.listen('share-error', (event) => {
+        alert(String(event.payload || '操作失败'));
+      });
+    } catch (error) {
+      console.warn('Tauri event bridge unavailable:', error);
+    }
   }
 
   function bindForms() {
@@ -452,6 +528,8 @@
       bindForms();
       if (state.role === 'admin' && state.isTauri) {
         bindServerControls();
+        bindTauriEvents();
+        startServerStatusSync();
         return;
       }
       await loadClientShare();

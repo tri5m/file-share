@@ -22,17 +22,23 @@ jobs:
             rust_target: aarch64-apple-darwin
             build_args: --target aarch64-apple-darwin --bundles app
             artifact_name: fileshare-macos-arm64
-            artifact_path: release-assets/*.dmg
+            artifact_path: release-assets/*
             dmg_suffix: aarch64
             app_path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/FileShare.app
+            updater_platform: darwin-aarch64
+            latest_name: latest-darwin-aarch64.json
+            updater_bundle: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/FileShare.app.tar.gz
           - label: macOS Intel
             os: macos-15-intel
             rust_target: x86_64-apple-darwin
             build_args: --target x86_64-apple-darwin --bundles app
             artifact_name: fileshare-macos-intel
-            artifact_path: release-assets/*.dmg
+            artifact_path: release-assets/*
             dmg_suffix: x64
             app_path: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/FileShare.app
+            updater_platform: darwin-x86_64
+            latest_name: latest-darwin-x86_64.json
+            updater_bundle: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/FileShare.app.tar.gz
           - label: Windows x86
             os: windows-latest
             rust_target: i686-pc-windows-msvc
@@ -40,7 +46,11 @@ jobs:
             artifact_name: fileshare-windows-x86
             artifact_path: |
               src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe
+              src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe.sig
               src-tauri/target/i686-pc-windows-msvc/release/bundle/msi/*.msi
+              release-assets/*.json
+            updater_platform: windows-i686
+            latest_name: latest-windows-i686.json
 
     steps:
       - name: Checkout
@@ -67,19 +77,48 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npm run build -- ${{ matrix.build_args }}
 
       - name: Create DMG
         if: runner.os == 'macOS'
         run: |
-          mkdir -p release-assets
           version="${GITHUB_REF_NAME#v}"
-          hdiutil create \
-            -volname "FileShare" \
-            -srcfolder "${{ matrix.app_path }}" \
-            -ov \
-            -format UDZO \
+          version="${version/.rc/-rc.}"
+          scripts/create-macos-dmg.sh \
+            "${{ matrix.app_path }}" \
             "release-assets/FileShare_${version}_${{ matrix.dmg_suffix }}.dmg"
+
+      - name: Prepare macOS updater assets
+        if: runner.os == 'macOS'
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          version="${version/.rc/-rc.}"
+          updater_asset="release-assets/FileShare_${version}_${{ matrix.dmg_suffix }}.app.tar.gz"
+          cp "${{ matrix.updater_bundle }}" "$updater_asset"
+          cp "${{ matrix.updater_bundle }}.sig" "$updater_asset.sig"
+          scripts/create-updater-json.sh \
+            "${{ matrix.updater_platform }}" \
+            "$version" \
+            "$updater_asset" \
+            "$updater_asset.sig" \
+            "release-assets/${{ matrix.latest_name }}"
+
+      - name: Prepare Windows updater metadata
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          version="${version/.rc/-rc.}"
+          updater_asset="$(ls src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe | head -n 1)"
+          scripts/create-updater-json.sh \
+            "${{ matrix.updater_platform }}" \
+            "$version" \
+            "$updater_asset" \
+            "$updater_asset.sig" \
+            "release-assets/${{ matrix.latest_name }}"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -93,3 +132,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.artifact_path }}
+          prerelease: ${{ contains(github.ref_name, 'rc') }}

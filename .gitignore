@@ -6,3 +6,4 @@ data/items.json
 src-tauri/data/items.json
 .DS_Store
 *.log
+.updater/

@@ -1,0 +1,20 @@
+#!/bin/bash
+
+APP_PATH="/Applications/FileShare.app"
+
+echo "FileShare 损坏提示修复工具"
+echo
+
+if [ ! -d "$APP_PATH" ]; then
+  echo "未找到 $APP_PATH"
+  echo "请先把 FileShare.app 拖到「应用程序」文件夹，再重新运行本工具。"
+  echo
+  read -r -p "按回车键退出..."
+  exit 1
+fi
+
+xattr -dr com.apple.quarantine "$APP_PATH"
+
+echo "修复完成。请重新打开 FileShare。"
+echo
+read -r -p "按回车键退出..."
