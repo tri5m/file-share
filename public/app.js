@@ -236,7 +236,7 @@
     }
     if (button) {
       button.disabled = false;
-      button.textContent = '启动服务';
+      button.textContent = '启动分享';
     }
   }
 
@@ -259,10 +259,12 @@
       if (state.serverRunning) {
         button.disabled = true;
         button.textContent = '停止中';
+        document.body.classList.add('server-stopped');
         try {
           await window.__TAURI__.core.invoke('stop_server');
           resetServerUi();
         } catch (error) {
+          document.body.classList.remove('server-stopped');
           button.disabled = false;
           button.textContent = '停止分享';
           alert(String(error));
@@ -278,12 +280,12 @@
 
       button.disabled = true;
       button.textContent = '启动中';
+      document.body.classList.remove('server-stopped');
       try {
         const info = await window.__TAURI__.core.invoke('start_server', { port });
         await applyServerInfo(info);
       } catch (error) {
-        button.disabled = false;
-        button.textContent = '启动服务';
+        resetServerUi();
         alert(String(error));
       }
     });

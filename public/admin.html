@@ -12,6 +12,17 @@
         <h1>文件共享</h1>
       </div>
       <div class="top-actions">
+        <div class="usage-tips">
+          <details>
+            <summary>使用说明</summary>
+            <div class="tips-content">
+              <p>1. 启动服务后，扫描二维码或复制链接</p>
+              <p>2. 在局域网内的其他设备打开链接</p>
+              <p>3. 发布文本或共享文件即可分享</p>
+              <p>4. 客户端可下载或复制共享内容</p>
+            </div>
+          </details>
+        </div>
         <div class="client-share">
           <button id="clientQrButton" class="client-qr-button" type="button" aria-label="放大查看二维码">
             <div id="clientQr" class="client-qr"></div>
@@ -27,13 +38,19 @@
     <main class="layout single">
       <section id="serverPanel" class="panel server-panel">
         <div class="server-copy">
-          <h2>启动服务</h2>
+          <h2>启动分享</h2>
+          <p>指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
+        </div>
+        <div class="server-hint">
           <p>指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
         </div>
         <form id="serverForm" class="server-form">
-          <input id="serverPort" type="number" min="1024" max="65535" value="5421" placeholder="端口号">
-          <button id="startServerButton" type="submit">启动服务</button>
+          <button id="startServerButton" type="submit">启动分享</button>
         </form>
+        <div class="port-input-group">
+          <label for="serverPort">端口号</label>
+          <input id="serverPort" type="number" min="1024" max="65535" value="5421" placeholder="5421">
+        </div>
       </section>
 
       <section class="panel list-panel">
