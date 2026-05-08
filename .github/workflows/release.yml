@@ -24,10 +24,8 @@ jobs:
             artifact_name: fileshare-macos-arm64
             artifact_path: release-assets/*
             dmg_suffix: aarch64
-            app_path: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/FileShare.app
             updater_platform: darwin-aarch64
             latest_name: latest-darwin-aarch64.json
-            updater_bundle: src-tauri/target/aarch64-apple-darwin/release/bundle/macos/FileShare.app.tar.gz
           - label: macOS Intel
             os: macos-15-intel
             rust_target: x86_64-apple-darwin
@@ -35,10 +33,8 @@ jobs:
             artifact_name: fileshare-macos-intel
             artifact_path: release-assets/*
             dmg_suffix: x64
-            app_path: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/FileShare.app
             updater_platform: darwin-x86_64
             latest_name: latest-darwin-x86_64.json
-            updater_bundle: src-tauri/target/x86_64-apple-darwin/release/bundle/macos/FileShare.app.tar.gz
           - label: Windows x86
             os: windows-latest
             rust_target: i686-pc-windows-msvc
@@ -145,8 +141,15 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           version="${version/.rc/-rc.}"
+          bundle_dir="src-tauri/target/${{ matrix.rust_target }}/release/bundle/macos"
+          app_path="$(find "$bundle_dir" -maxdepth 1 -name '*.app' | head -n 1)"
+          if [ -z "$app_path" ]; then
+            echo "No macOS app bundle found in $bundle_dir" >&2
+            ls -la "$bundle_dir" >&2 || true
+            exit 1
+          fi
           scripts/create-macos-dmg.sh \
-            "${{ matrix.app_path }}" \
+            "$app_path" \
             "release-assets/FileShare_${version}_${{ matrix.dmg_suffix }}.dmg"
 
       - name: Prepare macOS updater assets
@@ -154,9 +157,16 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           version="${version/.rc/-rc.}"
+          bundle_dir="src-tauri/target/${{ matrix.rust_target }}/release/bundle/macos"
+          updater_bundle="$(find "$bundle_dir" -maxdepth 1 -name '*.app.tar.gz' | head -n 1)"
+          if [ -z "$updater_bundle" ]; then
+            echo "No macOS updater bundle found in $bundle_dir" >&2
+            ls -la "$bundle_dir" >&2 || true
+            exit 1
+          fi
           updater_asset="release-assets/FileShare_${version}_${{ matrix.dmg_suffix }}.app.tar.gz"
-          cp "${{ matrix.updater_bundle }}" "$updater_asset"
-          cp "${{ matrix.updater_bundle }}.sig" "$updater_asset.sig"
+          cp "$updater_bundle" "$updater_asset"
+          cp "$updater_bundle.sig" "$updater_asset.sig"
           scripts/create-updater-json.sh \
             "${{ matrix.updater_platform }}" \
             "$version" \
