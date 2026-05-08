@@ -172,7 +172,8 @@ jobs:
             "$version" \
             "$updater_asset" \
             "$updater_asset.sig" \
-            "release-assets/${{ matrix.latest_name }}"
+            "release-assets/${{ matrix.latest_name }}" \
+            "主要解决移动端问题"
 
       - name: Prepare Windows updater metadata
         if: runner.os == 'Windows'
@@ -186,7 +187,8 @@ jobs:
             "$version" \
             "$updater_asset" \
             "$updater_asset.sig" \
-            "release-assets/${{ matrix.latest_name }}"
+            "release-assets/${{ matrix.latest_name }}" \
+            "主要解决移动端问题"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -200,4 +202,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.release_artifact_path || matrix.artifact_path }}
+          body: |
+            主要解决移动端问题
           prerelease: ${{ contains(github.ref_name, 'rc') }}
