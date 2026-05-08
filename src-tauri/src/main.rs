@@ -143,7 +143,7 @@ fn main() {
                 "main",
                 tauri::WebviewUrl::App("admin.html".into()),
             )
-            .title("文件共享")
+            .title("FileShare")
             .inner_size(1100.0, 760.0)
             .min_inner_size(880.0, 560.0)
             .resizable(true)
