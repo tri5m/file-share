@@ -565,25 +565,38 @@
     if (fileForm && fileInput) {
       const updateFileHint = () => {
         const count = fileInput.files.length;
-        fileHint.textContent = count ? `已选择 ${count} 个文件` : '支持多文件上传';
+        fileHint.textContent = count ? `已选择 ${count} 个文件，上传中会自动开始` : '支持多文件上传';
       };
 
       const uploadSelectedFiles = async () => {
         if (!fileInput.files.length) return;
         updateFileHint();
+        if (dropZone) {
+          dropZone.classList.add('uploading');
+        }
         const data = new FormData();
         data.append('source', state.role);
-        for (const file of fileInput.files) {
-          data.append('file', file);
+        for (const file of Array.from(fileInput.files)) {
+          data.append('file', file, file.name);
         }
         await request('/api/upload', { method: 'POST', body: data });
         fileForm.reset();
         updateFileHint();
+        if (dropZone) {
+          dropZone.classList.remove('uploading');
+        }
         fileForm.closest('dialog')?.close();
       };
 
       fileInput.addEventListener('change', () => {
-        uploadSelectedFiles().catch((error) => alert(error.message));
+        if (!fileInput.files.length) return;
+        updateFileHint();
+        uploadSelectedFiles().catch((error) => {
+          if (dropZone) {
+            dropZone.classList.remove('uploading');
+          }
+          alert(error.message);
+        });
       });
 
       if (dropZone) {
