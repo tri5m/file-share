@@ -22,6 +22,7 @@
               <p>4. 客户端可下载或复制共享内容</p>
             </div>
           </details>
+          <p class="tips-note">指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
         </div>
         <div class="client-share">
           <button id="clientQrButton" class="client-qr-button" type="button" aria-label="放大查看二维码">
@@ -38,11 +39,11 @@
     <main class="layout single">
       <section id="serverPanel" class="panel server-panel">
         <div class="server-copy">
-          <h2>启动分享</h2>
-          <p>指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
-        </div>
-        <div class="server-hint">
-          <p>指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
+          <div id="dropZone" class="upload-drop upload-drop-static admin-file-drop">
+            <span class="upload-icon">↑</span>
+            <strong>拖动文件到此处或点击此处分享文件</strong>
+            <small id="fileHint" class="admin-file-hint">文件会以本机路径方式共享，不会复制到应用目录</small>
+          </div>
         </div>
         <form id="serverForm" class="server-form">
           <button id="startServerButton" type="submit">启动分享</button>
@@ -90,10 +91,10 @@
       </form>
       <div class="modal-body">
         <form id="fileForm" class="stack">
-          <div id="dropZone" class="upload-drop upload-drop-static">
+          <div class="upload-drop upload-drop-static admin-file-drop">
             <span class="upload-icon">↑</span>
-            <strong>使用系统文件选择器共享本机文件</strong>
-            <small id="fileHint">选择后会直接共享本机文件路径，不会复制到应用目录</small>
+            <strong>拖动文件到此处或点击此处分享文件</strong>
+            <small class="admin-file-hint">文件会以本机路径方式共享，不会复制到应用目录</small>
           </div>
           <button id="pickAdminFilesButton" type="button">选择并共享文件</button>
         </form>

@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "FileShare",
-  "version": "1.0.1",
+  "productName": "文件共享",
+  "version": "1.0.2",
   "identifier": "com.fileshare.desktop",
   "build": {
     "beforeDevCommand": "",
@@ -37,10 +37,15 @@
     "category": "Productivity",
     "shortDescription": "LAN file sharing",
     "longDescription": "A lightweight LAN file sharing app with client and admin pages.",
+    "copyright": "Open Source: https://github.com/tri5m/file-share",
+    "publisher": "Trifolium Wang",
     "windows": {
       "wix": {
         "language": "zh-CN"
       }
+    },
+    "macOS": {
+      "infoPlist": "Info.plist"
     }
   }
 }

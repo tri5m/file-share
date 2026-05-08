@@ -54,6 +54,7 @@ pub struct ServerInfo {
 
 pub struct RunningServer {
     shutdown: Option<oneshot::Sender<()>>,
+    state: AppState,
 }
 
 #[derive(Deserialize)]
@@ -231,7 +232,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         .route("/api/items/:id", delete(remove))
         .layer(DefaultBodyLimit::max(200 * 1024 * 1024))
         .layer(CorsLayer::permissive())
-        .with_state(state);
+        .with_state(state.clone());
 
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port))
         .await
@@ -255,6 +256,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
     if let Some(handle) = SERVER_HANDLE.get() {
         *handle.lock().await = Some(RunningServer {
             shutdown: Some(shutdown_tx),
+            state,
         });
     }
 
@@ -275,6 +277,24 @@ pub async fn stop() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+pub async fn add_admin_local_files(paths: Vec<PathBuf>) -> Result<usize, String> {
+    let Some(handle) = SERVER_HANDLE.get() else {
+        return Err("服务未启动".to_string());
+    };
+    let state = {
+        let guard = handle.lock().await;
+        guard
+            .as_ref()
+            .map(|running| running.state.clone())
+            .ok_or_else(|| "服务未启动".to_string())?
+    };
+
+    add_local_file_paths(&state, paths)
+        .await
+        .map(|items| items.len())
+        .map_err(|error| error.message)
 }
 
 pub async fn download_filename(id: &str) -> Result<String, String> {
@@ -448,13 +468,20 @@ async fn add_local_files(
     Json(payload): Json<LocalFilePayload>,
 ) -> AppResult<Json<Vec<PublicItem>>> {
     require_local_addr(&state, address.ip())?;
-    if payload.paths.is_empty() {
+    let paths = payload.paths.into_iter().map(PathBuf::from).collect();
+    Ok(Json(add_local_file_paths(&state, paths).await?))
+}
+
+async fn add_local_file_paths(
+    state: &AppState,
+    paths: Vec<PathBuf>,
+) -> AppResult<Vec<PublicItem>> {
+    if paths.is_empty() {
         return Err(AppError::bad_request("请选择文件"));
     }
 
     let mut items = Vec::new();
-    for raw_path in payload.paths {
-        let path = PathBuf::from(raw_path);
+    for path in paths {
         let metadata = fs::metadata(&path)
             .await
             .map_err(|_| AppError::bad_request("所选文件不存在"))?;
@@ -482,7 +509,7 @@ async fn add_local_files(
         });
     }
 
-    Ok(Json(add_items(&state, items).await?))
+    add_items(state, items).await
 }
 
 async fn download(

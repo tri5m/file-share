@@ -22,9 +22,20 @@ from pathlib import Path
 
 platform, version, url, signature_path, output_path = sys.argv[1:]
 signature = Path(signature_path).read_text(encoding="utf-8").strip()
+
+# 生成更详细的更新说明
+notes = f"""FileShare {version}
+
+🔄 更新内容：
+请访问 GitHub 发布页面查看完整的更新日志和新功能说明。
+
+📦 下载地址：
+https://github.com/tri5m/file-share/releases/tag/v{version}
+"""
+
 payload = {
     "version": version,
-    "notes": f"FileShare {version}",
+    "notes": notes.strip(),
     "pub_date": datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
     "platforms": {
         platform: {

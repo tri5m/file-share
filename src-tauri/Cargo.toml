@@ -1,6 +1,6 @@
 [package]
 name = "fileshare"
-version = "1.0.1"
+version = "1.0.2"
 description = "LAN file sharing desktop app"
 authors = ["FileShare"]
 edition = "2021"

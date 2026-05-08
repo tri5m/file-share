@@ -55,6 +55,22 @@ jobs:
               release-assets/*.json
             updater_platform: windows-i686
             latest_name: latest-windows-i686.json
+          - label: Windows x64
+            os: windows-latest
+            rust_target: x86_64-pc-windows-msvc
+            build_args: --target x86_64-pc-windows-msvc
+            artifact_name: fileshare-windows-x64
+            artifact_path: |
+              src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+              src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe.sig
+              release-assets/*.json
+            release_artifact_path: |
+              src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+              src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe.sig
+              src-tauri/target/x86_64-pc-windows-msvc/release/bundle/msi/*.msi
+              release-assets/*.json
+            updater_platform: windows-x86_64
+            latest_name: latest-windows-x86_64.json
 
     steps:
       - name: Checkout
@@ -154,7 +170,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           version="${version/.rc/-rc.}"
-          updater_asset="$(ls src-tauri/target/i686-pc-windows-msvc/release/bundle/nsis/*.exe | head -n 1)"
+          updater_asset="$(ls src-tauri/target/${{ matrix.rust_target }}/release/bundle/nsis/*.exe | head -n 1)"
           scripts/create-updater-json.sh \
             "${{ matrix.updater_platform }}" \
             "$version" \

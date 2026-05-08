@@ -2,6 +2,7 @@
 
 mod server;
 
+use serde::Serialize;
 use std::{path::PathBuf, sync::Mutex};
 use tauri::{
     image::Image,
@@ -28,6 +29,21 @@ struct TrayMenuItems {
     toggle_share: MenuItem<Wry>,
     check_update: MenuItem<Wry>,
     tray: TrayIcon<Wry>,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DragPosition {
+    x: f64,
+    y: f64,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AdminFileDropPayload {
+    r#type: &'static str,
+    paths: Vec<String>,
+    position: Option<DragPosition>,
 }
 
 #[tauri::command]
@@ -127,7 +143,7 @@ fn main() {
                 "main",
                 tauri::WebviewUrl::App("admin.html".into()),
             )
-            .title("FileShare")
+            .title("文件共享")
             .inner_size(1100.0, 760.0)
             .min_inner_size(880.0, 560.0)
             .resizable(true)
@@ -135,23 +151,36 @@ fn main() {
 
             setup_tray(app)?;
 
+            // 启动时在后台检查更新
+            let app_handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+                let _ = check_for_updates_on_startup(app_handle).await;
+            });
+
             Ok(())
         })
         .build(tauri::generate_context!())
         .expect("error while building FileShare")
         .run(|app_handle, event| {
             if let RunEvent::WindowEvent {
-                ref label,
-                event: WindowEvent::CloseRequested { ref api, .. },
-                ..
+                ref label, ref event, ..
             } = event
             {
                 if label == "main" {
-                    api.prevent_close();
-                    if let Some(window) = app_handle.get_webview_window("main") {
-                        let _ = window.hide();
+                    match event {
+                        WindowEvent::CloseRequested { api, .. } => {
+                            api.prevent_close();
+                            if let Some(window) = app_handle.get_webview_window("main") {
+                                let _ = window.hide();
+                            }
+                            set_dock_visible(app_handle, false);
+                        }
+                        WindowEvent::DragDrop(drop_event) => {
+                            emit_admin_file_drop(app_handle, drop_event);
+                        }
+                        _ => {}
                     }
-                    set_dock_visible(app_handle, false);
                 }
             }
 
@@ -238,6 +267,69 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     }
     set_tray_share_running(app.handle(), false);
     Ok(())
+}
+
+fn emit_admin_file_drop(app: &AppHandle, event: &tauri::DragDropEvent) {
+    eprintln!("FileShare drag/drop event: {event:?}");
+
+    if let tauri::DragDropEvent::Drop { paths, .. } = event {
+        let app_handle = app.clone();
+        let dropped_paths = paths.to_vec();
+        tauri::async_runtime::spawn(async move {
+            match server::add_admin_local_files(dropped_paths).await {
+                Ok(count) => {
+                    eprintln!("FileShare registered {count} dropped file(s)");
+                    let _ = app_handle.emit("admin-files-added", count);
+                }
+                Err(error) => {
+                    eprintln!("FileShare failed to register dropped file(s): {error}");
+                    let _ = app_handle.emit("share-error", error);
+                }
+            }
+        });
+    }
+
+    let payload = match event {
+        tauri::DragDropEvent::Enter { paths, position } => AdminFileDropPayload {
+            r#type: "enter",
+            paths: drag_paths(paths),
+            position: Some(DragPosition {
+                x: position.x,
+                y: position.y,
+            }),
+        },
+        tauri::DragDropEvent::Over { position } => AdminFileDropPayload {
+            r#type: "over",
+            paths: Vec::new(),
+            position: Some(DragPosition {
+                x: position.x,
+                y: position.y,
+            }),
+        },
+        tauri::DragDropEvent::Drop { paths, position } => AdminFileDropPayload {
+            r#type: "drop",
+            paths: drag_paths(paths),
+            position: Some(DragPosition {
+                x: position.x,
+                y: position.y,
+            }),
+        },
+        tauri::DragDropEvent::Leave => AdminFileDropPayload {
+            r#type: "leave",
+            paths: Vec::new(),
+            position: None,
+        },
+        _ => return,
+    };
+
+    let _ = app.emit("admin-file-drop", payload);
+}
+
+fn drag_paths(paths: &[PathBuf]) -> Vec<String> {
+    paths
+        .iter()
+        .map(|path| path.as_os_str().to_string_lossy().to_string())
+        .collect()
 }
 
 fn tray_icon() -> Option<Image<'static>> {
@@ -397,31 +489,100 @@ fn set_tray_share_running(app: &AppHandle, running: bool) {
     }
 }
 
-async fn check_for_updates_inner(app: AppHandle) -> Result<(), String> {
+async fn check_for_updates_on_startup(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
 
-    let Some(update) = app
+    let update = app
         .updater()
         .map_err(|error| error.to_string())?
         .check()
         .await
-        .map_err(|error| error.to_string())?
-    else {
+        .map_err(|error| error.to_string())?;
+
+    if update.is_some() {
+        let _ = app.emit("update-available", ());
+    }
+
+    Ok(())
+}
+
+async fn check_for_updates_inner(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+
+    println!("开始检查更新...");
+
+    let updater = app
+        .updater()
+        .map_err(|error| {
+            let err_msg = format!("创建updater失败: {}", error);
+            println!("{}", err_msg);
+            err_msg
+        })?;
+
+    println!("正在检查更新...");
+
+    let update = updater
+        .check()
+        .await
+        .map_err(|error| {
+            let err_msg = format!("检查更新失败: {}", error);
+            println!("{}", err_msg);
+            err_msg
+        })?;
+
+    let Some(update) = update else {
+        println!("当前已是最新版本");
         show_message(rfd::MessageLevel::Info, "检查更新", "当前已经是最新版本。");
         return Ok(());
     };
 
-    show_message(
-        rfd::MessageLevel::Info,
-        "发现新版本",
-        "发现新版本，开始下载并安装。安装完成后应用会自动重启。",
+    let current_version = app.package_info().version.to_string();
+    let new_version = update.version.clone();
+    let update_body = update.body.clone().unwrap_or_default();
+
+    println!("发现新版本: {} (当前: {})", new_version, current_version);
+
+    let message = format!(
+        "发现新版本 {}\n当前版本: {}\n\n{}\n\n是否立即下载并安装？安装完成后应用将自动重启。",
+        new_version,
+        current_version,
+        if update_body.is_empty() { "查看 GitHub 发布页面了解更新内容" } else { &update_body }
     );
 
-    update
-        .download_and_install(|_, _| {}, || {})
-        .await
-        .map_err(|error| error.to_string())?;
+    let result = rfd::MessageDialog::new()
+        .set_level(rfd::MessageLevel::Info)
+        .set_title("发现新版本")
+        .set_description(&message)
+        .set_buttons(rfd::MessageButtons::OkCancel)
+        .show();
 
+    if !matches!(result, rfd::MessageDialogResult::Ok) {
+        println!("用户取消更新");
+        return Ok(());
+    }
+
+    println!("开始下载更新...");
+
+    update
+        .download_and_install(
+            |chunk_length, content_length| {
+                if let Some(total) = content_length {
+                    let progress = (chunk_length as f64 / total as f64 * 100.0) as u32;
+                    println!("下载进度: {}%", progress);
+                }
+            },
+            || {
+                println!("下载完成，开始安装...");
+            },
+        )
+        .await
+        .map_err(|error| {
+            let err_msg = format!("下载或安装失败: {}", error);
+            println!("{}", err_msg);
+            err_msg
+        })?;
+
+    println!("安装完成，准备重启...");
     app.restart();
 }
 

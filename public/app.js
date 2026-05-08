@@ -7,7 +7,10 @@
     isTauri: false,
     serverRunning: false,
     shareInfo: null,
-    statusTimer: null
+    statusTimer: null,
+    adminFileSharing: false,
+    adminDragDropBound: false,
+    adminDropFeedbackTimer: null
   };
 
   function $(id) {
@@ -23,6 +26,10 @@
 
   function formatTime(value) {
     return new Date(value).toLocaleString('zh-CN', { hour12: false });
+  }
+
+  function formatTextLength(value) {
+    return `${Array.from(String(value || '').trim()).length} 字`;
   }
 
   function previewText(value, max = 40) {
@@ -64,7 +71,9 @@
       const titleAction = isText
         ? ''
         : `<button class="inline-icon-button" data-action="copy-link" data-id="${item.id}" aria-label="复制文件链接" title="复制文件链接">🔗</button>`;
-      const description = isText ? '' : `<div class="meta">${formatSize(item.size)} · ${formatTime(item.createdAt)}</div>`;
+      const description = isText
+        ? `<div class="meta">${formatTextLength(item.content || item.title)} · ${formatTime(item.createdAt)}</div>`
+        : `<div class="meta">${formatSize(item.size)} · ${formatTime(item.createdAt)}</div>`;
       const primaryAction = isText
         ? `<button class="secondary" data-action="copy" data-id="${item.id}">复制</button>`
         : `<button class="secondary" data-action="download" data-id="${item.id}">下载</button>`;
@@ -304,36 +313,168 @@
     };
   }
 
+  async function addAdminLocalFiles(paths) {
+    if (!paths?.length || state.adminFileSharing) return;
+
+    const fileHints = document.querySelectorAll('.admin-file-hint');
+    const fileForm = $('fileForm');
+    const button = $('pickAdminFilesButton');
+
+    state.adminFileSharing = true;
+    if (button) {
+      button.disabled = true;
+      button.textContent = '共享中';
+    }
+    fileHints.forEach((hint) => {
+      hint.textContent = `已选择 ${paths.length} 个文件`;
+    });
+
+    try {
+      await request('/api/local-file', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ paths })
+      });
+      fileHints.forEach((hint) => {
+        hint.textContent = '文件会以本机路径方式共享，不会复制到应用目录';
+      });
+      fileForm?.closest('dialog')?.close();
+    } finally {
+      state.adminFileSharing = false;
+      if (button) {
+        button.disabled = false;
+        button.textContent = '选择并共享文件';
+      }
+    }
+  }
+
   async function shareAdminFiles() {
     if (!window.__TAURI__?.core?.invoke) {
       throw new Error('当前环境不支持系统文件选择器');
     }
 
-    const fileHint = $('fileHint');
-    const fileForm = $('fileForm');
     const button = $('pickAdminFilesButton');
 
     button.disabled = true;
     button.textContent = '选择中';
     try {
       const paths = await window.__TAURI__.core.invoke('pick_admin_files');
-      if (!paths.length) return;
-      if (fileHint) {
-        fileHint.textContent = `已选择 ${paths.length} 个文件`;
-      }
-      await request('/api/local-file', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ paths })
-      });
-      if (fileHint) {
-        fileHint.textContent = '选择后会直接共享本机文件路径，不会复制到应用目录';
-      }
-      fileForm?.closest('dialog')?.close();
+      await addAdminLocalFiles(paths);
     } finally {
-      button.disabled = false;
-      button.textContent = '选择并共享文件';
+      if (!state.adminFileSharing) {
+        button.disabled = false;
+        button.textContent = '选择并共享文件';
+      }
     }
+  }
+
+  function setAdminDropActive(active) {
+    document.querySelectorAll('.admin-file-drop').forEach((dropZone) => {
+      dropZone.classList.toggle('dragging', active);
+    });
+  }
+
+  function setAdminDropPresentation(mode, count = 0) {
+    const dropZones = document.querySelectorAll('.admin-file-drop');
+    if (!dropZones.length) return;
+
+    window.clearTimeout(state.adminDropFeedbackTimer);
+
+    dropZones.forEach((dropZone) => {
+      const title = dropZone.querySelector('strong');
+      const hint = dropZone.querySelector('.admin-file-hint');
+
+      dropZone.classList.remove('dragging', 'shared', 'pending');
+
+      if (mode === 'dragging') {
+        dropZone.classList.add('dragging');
+        if (title) title.textContent = '松开即可共享文件';
+        if (hint) hint.textContent = '将直接登记本机文件路径，不会复制到应用目录';
+        return;
+      }
+
+      if (mode === 'pending') {
+        dropZone.classList.add('pending');
+        if (title) title.textContent = '正在共享文件...';
+        if (hint) hint.textContent = '请稍候';
+        return;
+      }
+
+      if (mode === 'shared') {
+        dropZone.classList.add('shared');
+        if (title) title.textContent = `已共享 ${count} 个文件`;
+        if (hint) hint.textContent = '文件已加入共享列表';
+        return;
+      }
+
+      if (title) title.textContent = '拖动文件到此处或点击此处分享文件';
+      if (hint) hint.textContent = '文件会以本机路径方式共享，不会复制到应用目录';
+    });
+  }
+
+  function flashAdminDropSuccess(count) {
+    setAdminDropPresentation('shared', count);
+
+    state.adminDropFeedbackTimer = window.setTimeout(() => {
+      setAdminDropPresentation('idle');
+    }, 1600);
+  }
+
+  async function bindAdminFileDrop() {
+    if (state.role !== 'admin' || state.adminDragDropBound) return;
+
+    const currentWebview = window.__TAURI__?.webview?.getCurrentWebview?.()
+      || window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow?.()
+      || window.__TAURI__?.window?.getCurrentWindow?.();
+    const listen = window.__TAURI__?.event?.listen;
+    if (!currentWebview?.onDragDropEvent && !listen) return;
+
+    state.adminDragDropBound = true;
+    const handleDragDrop = (event) => {
+      const { payload } = event;
+
+      if (payload.type === 'enter' || payload.type === 'over') {
+        setAdminDropPresentation('dragging');
+        return;
+      }
+
+      if (payload.type === 'drop') {
+        setAdminDropPresentation('pending');
+        return;
+      }
+
+      if (payload.type === 'cancel' || payload.type === 'leave') {
+        setAdminDropPresentation('idle');
+      }
+    };
+
+    if (listen) {
+      await listen('admin-file-drop', (event) => handleDragDrop(event));
+    }
+
+    if (currentWebview?.onDragDropEvent) {
+      await currentWebview.onDragDropEvent(handleDragDrop);
+      return;
+    }
+
+    await Promise.all([
+      listen('tauri://drag-enter', (event) => handleDragDrop({
+        ...event,
+        payload: { ...event.payload, type: 'enter' }
+      })),
+      listen('tauri://drag-over', (event) => handleDragDrop({
+        ...event,
+        payload: { ...event.payload, type: 'over' }
+      })),
+      listen('tauri://drag-drop', (event) => handleDragDrop({
+        ...event,
+        payload: { ...event.payload, type: 'drop' }
+      })),
+      listen('tauri://drag-leave', (event) => handleDragDrop({
+        ...event,
+        payload: { type: 'leave' }
+      }))
+    ]);
   }
 
   function bindQrPreview() {
@@ -378,6 +519,9 @@
       await events.listen('share-error', (event) => {
         alert(String(event.payload || '操作失败'));
       });
+      await events.listen('admin-files-added', (event) => {
+        flashAdminDropSuccess(Number(event.payload) || 0);
+      });
     } catch (error) {
       console.warn('Tauri event bridge unavailable:', error);
     }
@@ -417,6 +561,7 @@
     const dropZone = $('dropZone');
     const fileHint = $('fileHint');
     const pickAdminFilesButton = $('pickAdminFilesButton');
+    const adminDropZones = Array.from(document.querySelectorAll('.admin-file-drop'));
     if (fileForm && fileInput) {
       const updateFileHint = () => {
         const count = fileInput.files.length;
@@ -475,7 +620,7 @@
       };
 
       pickAdminFilesButton.addEventListener('click', openAdminPicker);
-      if (dropZone) {
+      adminDropZones.forEach((dropZone) => {
         dropZone.addEventListener('click', openAdminPicker);
         dropZone.tabIndex = 0;
         dropZone.setAttribute('role', 'button');
@@ -484,7 +629,7 @@
             openAdminPicker(event);
           }
         });
-      }
+      });
     }
 
     $('items').addEventListener('click', async (event) => {
@@ -531,12 +676,28 @@
       if (state.role === 'admin' && state.isTauri) {
         bindServerControls();
         bindTauriEvents();
+        bindAdminFileDrop().catch((error) => console.warn('Tauri file drop unavailable:', error));
         startServerStatusSync();
         return;
       }
       await loadClientShare();
       await loadItems();
       connectEvents();
+    }
+  };
+
+  window.__fileshareAdminDropFeedback = {
+    dragging() {
+      setAdminDropPresentation('dragging');
+    },
+    pending() {
+      setAdminDropPresentation('pending');
+    },
+    shared(count) {
+      flashAdminDropSuccess(Number(count) || 0);
+    },
+    reset() {
+      setAdminDropPresentation('idle');
     }
   };
 })();
