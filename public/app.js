@@ -40,8 +40,8 @@
 
   function getDownloadUrl(item) {
     const path = `/api/items/${item.id}/download`;
-    if (state.role === 'admin' && state.shareInfo?.url) {
-      return state.shareInfo.url.replace(/\/client\.html$/, path);
+    if (state.shareInfo?.url) {
+      return new URL(path, new URL(state.shareInfo.url).origin).toString();
     }
     return new URL(path, window.location.origin).toString();
   }
@@ -563,38 +563,54 @@
     const pickAdminFilesButton = $('pickAdminFilesButton');
     const adminDropZones = Array.from(document.querySelectorAll('.admin-file-drop'));
     if (fileForm && fileInput) {
-      const updateFileHint = () => {
+      let uploadingFiles = false;
+
+      const updateFileHint = (message) => {
+        if (!fileHint) return;
+        if (message) {
+          fileHint.textContent = message;
+          return;
+        }
         const count = fileInput.files.length;
-        fileHint.textContent = count ? `已选择 ${count} 个文件，上传中会自动开始` : '支持多文件上传';
+        fileHint.textContent = count ? `已选择 ${count} 个文件，正在准备上传` : '选择后自动上传';
       };
 
       const uploadSelectedFiles = async () => {
-        if (!fileInput.files.length) return;
-        updateFileHint();
+        if (!fileInput.files.length || uploadingFiles) return;
+        const files = Array.from(fileInput.files);
+        uploadingFiles = true;
+        updateFileHint(`正在上传 ${files.length} 个文件，请保持页面打开`);
         if (dropZone) {
           dropZone.classList.add('uploading');
         }
-        const data = new FormData();
-        data.append('source', state.role);
-        for (const file of Array.from(fileInput.files)) {
-          data.append('file', file, file.name);
+        try {
+          const data = new FormData();
+          data.append('source', state.role);
+          for (const file of files) {
+            data.append('file', file, file.name);
+          }
+          await request('/api/upload', { method: 'POST', body: data });
+          fileForm.reset();
+          updateFileHint('上传完成');
+          window.setTimeout(() => updateFileHint(), 900);
+          fileForm.closest('dialog')?.close();
+        } finally {
+          uploadingFiles = false;
+          if (dropZone) {
+            dropZone.classList.remove('uploading');
+          }
         }
-        await request('/api/upload', { method: 'POST', body: data });
-        fileForm.reset();
-        updateFileHint();
-        if (dropZone) {
-          dropZone.classList.remove('uploading');
-        }
-        fileForm.closest('dialog')?.close();
       };
 
       fileInput.addEventListener('change', () => {
         if (!fileInput.files.length) return;
         updateFileHint();
         uploadSelectedFiles().catch((error) => {
+          uploadingFiles = false;
           if (dropZone) {
             dropZone.classList.remove('uploading');
           }
+          updateFileHint('上传失败，请重新选择');
           alert(error.message);
         });
       });

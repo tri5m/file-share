@@ -7,9 +7,13 @@ use std::{
 
 use async_stream::stream;
 use axum::{
+    body::Body,
     extract::{connect_info::ConnectInfo, DefaultBodyLimit, Multipart, Path as AxumPath, State},
     http::{
-        header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_TYPE},
+        header::{
+            ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
+            CONTENT_TYPE, RANGE,
+        },
         HeaderMap, HeaderValue, StatusCode,
     },
     response::{IntoResponse, Response, Sse},
@@ -20,15 +24,19 @@ use chrono::Utc;
 use qrcode::{render::svg, QrCode};
 use serde::{Deserialize, Serialize};
 use tokio::{
-    fs,
+    fs::{self, File},
+    io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::{broadcast, oneshot, Mutex},
 };
+use tokio_util::io::ReaderStream;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
 const CLIENT_HTML: &str = include_str!("../../public/client.html");
 const APP_JS: &str = include_str!("../../public/app.js");
 const STYLES_CSS: &str = include_str!("../../public/styles.css");
+const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024 * 1024;
+const DOWNLOAD_BUFFER_BYTES: usize = 1024 * 1024;
 
 type AppResult<T> = Result<T, AppError>;
 
@@ -66,6 +74,7 @@ struct LocalFilePayload {
 struct AppError {
     status: StatusCode,
     message: String,
+    headers: HeaderMap,
 }
 
 #[derive(Serialize)]
@@ -112,6 +121,7 @@ impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         (
             self.status,
+            self.headers,
             Json(ErrorBody {
                 error: self.message,
             }),
@@ -125,6 +135,7 @@ impl AppError {
         Self {
             status: StatusCode::BAD_REQUEST,
             message: message.into(),
+            headers: HeaderMap::new(),
         }
     }
 
@@ -132,6 +143,7 @@ impl AppError {
         Self {
             status: StatusCode::FORBIDDEN,
             message: message.into(),
+            headers: HeaderMap::new(),
         }
     }
 
@@ -139,6 +151,20 @@ impl AppError {
         Self {
             status: StatusCode::NOT_FOUND,
             message: message.into(),
+            headers: HeaderMap::new(),
+        }
+    }
+
+    fn range_not_satisfiable(file_size: u64) -> Self {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes */{file_size}")).unwrap(),
+        );
+        Self {
+            status: StatusCode::RANGE_NOT_SATISFIABLE,
+            message: format!("请求范围无效，文件大小为 {file_size} 字节"),
+            headers,
         }
     }
 
@@ -146,6 +172,7 @@ impl AppError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: error.to_string(),
+            headers: HeaderMap::new(),
         }
     }
 }
@@ -226,11 +253,13 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         .route("/api/client-info", get(client_info))
         .route("/api/events", get(sse_events))
         .route("/api/text", post(add_text))
-        .route("/api/upload", post(upload))
+        .route(
+            "/api/upload",
+            post(upload).layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES)),
+        )
         .route("/api/local-file", post(add_local_files))
         .route("/api/items/:id/download", get(download))
         .route("/api/items/:id", delete(remove))
-        .layer(DefaultBodyLimit::max(200 * 1024 * 1024))
         .layer(CorsLayer::permissive())
         .with_state(state.clone());
 
@@ -411,7 +440,7 @@ async fn upload(
     mut multipart: Multipart,
 ) -> AppResult<Json<Vec<PublicItem>>> {
     let mut source = "client".to_string();
-    let mut files: Vec<(String, Option<String>, Vec<u8>)> = Vec::new();
+    let mut items = Vec::new();
 
     while let Some(field) = multipart.next_field().await? {
         let name = field.name().unwrap_or_default().to_string();
@@ -425,38 +454,46 @@ async fn upload(
                 .map(safe_name)
                 .unwrap_or_else(|| "file".to_string());
             let mime = field.content_type().map(|value| value.to_string());
-            let data = field.bytes().await?.to_vec();
-            if !data.is_empty() {
-                files.push((filename, mime, data));
+            let storage_path = next_available_path(&state.client_upload_dir, &filename)
+                .await
+                .map_err(AppError::internal)?;
+            let mut file = File::create(&storage_path).await?;
+            let mut size = 0_u64;
+            let mut field = field;
+
+            while let Some(chunk) = field.chunk().await? {
+                size += chunk.len() as u64;
+                file.write_all(&chunk).await?;
             }
+
+            if size == 0 {
+                let _ = fs::remove_file(&storage_path).await;
+                continue;
+            }
+
+            items.push(Item {
+                id: Uuid::new_v4().to_string(),
+                kind: "file".to_string(),
+                title: filename,
+                content: None,
+                mime,
+                size,
+                source: source.clone(),
+                storage_path: storage_path.to_string_lossy().to_string(),
+                created_at: now(),
+                updated_at: now(),
+            });
         }
     }
 
     if source == "admin" {
+        for item in &items {
+            let _ = fs::remove_file(&item.storage_path).await;
+        }
         return Err(AppError::bad_request("管理端共享文件请使用系统文件选择器"));
     }
-    if files.is_empty() {
+    if items.is_empty() {
         return Err(AppError::bad_request("请选择文件"));
-    }
-
-    let mut items = Vec::new();
-    for (filename, mime, data) in files {
-        let storage_path = next_available_path(&state.client_upload_dir, &filename)
-            .await
-            .map_err(AppError::internal)?;
-        fs::write(&storage_path, &data).await?;
-        items.push(Item {
-            id: Uuid::new_v4().to_string(),
-            kind: "file".to_string(),
-            title: filename,
-            content: None,
-            mime,
-            size: data.len() as u64,
-            source: source.clone(),
-            storage_path: storage_path.to_string_lossy().to_string(),
-            created_at: now(),
-            updated_at: now(),
-        });
     }
 
     Ok(Json(add_items(&state, items).await?))
@@ -515,6 +552,7 @@ async fn add_local_file_paths(
 async fn download(
     State(state): State<AppState>,
     AxumPath(id): AxumPath<String>,
+    headers: HeaderMap,
 ) -> AppResult<Response> {
     let items = read_items(&state).await?;
     let item = items
@@ -527,21 +565,26 @@ async fn download(
     }
 
     let path = PathBuf::from(&item.storage_path);
-    let data = fs::read(&path)
+    let mut file = File::open(&path)
         .await
         .map_err(|_| AppError::not_found("源文件不存在"))?;
+    let metadata = file.metadata().await?;
+    let file_size = metadata.len();
     let fallback_name = ascii_fallback_name(&item.title);
+    let range = parse_range_header(headers.get(RANGE), file_size)?;
 
-    let mut headers = HeaderMap::new();
-    headers.insert(
+    let mut response_headers = HeaderMap::new();
+    response_headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    response_headers.insert(
         CONTENT_TYPE,
-        HeaderValue::from_static("application/octet-stream"),
+        HeaderValue::from_str(
+            item.mime
+                .as_deref()
+                .unwrap_or("application/octet-stream"),
+        )
+        .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
     );
-    headers.insert(
-        CONTENT_LENGTH,
-        HeaderValue::from_str(&data.len().to_string()).unwrap(),
-    );
-    headers.insert(
+    response_headers.insert(
         CONTENT_DISPOSITION,
         HeaderValue::from_str(&format!(
             "attachment; filename=\"{}\"; filename*=UTF-8''{}",
@@ -551,7 +594,32 @@ async fn download(
         .unwrap(),
     );
 
-    Ok((headers, data).into_response())
+    if let Some((start, end)) = range {
+        let length = end - start + 1;
+        file.seek(std::io::SeekFrom::Start(start)).await?;
+        response_headers.insert(
+            CONTENT_LENGTH,
+            HeaderValue::from_str(&length.to_string()).unwrap(),
+        );
+        response_headers.insert(
+            CONTENT_RANGE,
+            HeaderValue::from_str(&format!("bytes {start}-{end}/{file_size}")).unwrap(),
+        );
+        let stream = ReaderStream::with_capacity(file.take(length), DOWNLOAD_BUFFER_BYTES);
+        return Ok((
+            StatusCode::PARTIAL_CONTENT,
+            response_headers,
+            Body::from_stream(stream),
+        )
+            .into_response());
+    }
+
+    response_headers.insert(
+        CONTENT_LENGTH,
+        HeaderValue::from_str(&file_size.to_string()).unwrap(),
+    );
+    let stream = ReaderStream::with_capacity(file, DOWNLOAD_BUFFER_BYTES);
+    Ok((response_headers, Body::from_stream(stream)).into_response())
 }
 
 async fn remove(
@@ -659,6 +727,65 @@ fn public_items(items: &[Item]) -> Vec<PublicItem> {
             updated_at: item.updated_at.clone(),
         })
         .collect()
+}
+
+fn parse_range_header(
+    header: Option<&HeaderValue>,
+    file_size: u64,
+) -> AppResult<Option<(u64, u64)>> {
+    let Some(header) = header else {
+        return Ok(None);
+    };
+    if file_size == 0 {
+        return Err(AppError::range_not_satisfiable(file_size));
+    }
+
+    let value = header
+        .to_str()
+        .map_err(|_| AppError::range_not_satisfiable(file_size))?
+        .trim();
+    let Some(range) = value.strip_prefix("bytes=") else {
+        return Err(AppError::range_not_satisfiable(file_size));
+    };
+    if range.contains(',') {
+        return Err(AppError::range_not_satisfiable(file_size));
+    }
+
+    let Some((start_raw, end_raw)) = range.split_once('-') else {
+        return Err(AppError::range_not_satisfiable(file_size));
+    };
+
+    if start_raw.is_empty() {
+        let suffix_length = end_raw
+            .parse::<u64>()
+            .map_err(|_| AppError::range_not_satisfiable(file_size))?;
+        if suffix_length == 0 {
+            return Err(AppError::range_not_satisfiable(file_size));
+        }
+        let start = file_size.saturating_sub(suffix_length);
+        return Ok(Some((start, file_size - 1)));
+    }
+
+    let start = start_raw
+        .parse::<u64>()
+        .map_err(|_| AppError::range_not_satisfiable(file_size))?;
+    if start >= file_size {
+        return Err(AppError::range_not_satisfiable(file_size));
+    }
+
+    let end = if end_raw.is_empty() {
+        file_size - 1
+    } else {
+        end_raw
+            .parse::<u64>()
+            .map_err(|_| AppError::range_not_satisfiable(file_size))?
+            .min(file_size - 1)
+    };
+    if end < start {
+        return Err(AppError::range_not_satisfiable(file_size));
+    }
+
+    Ok(Some((start, end)))
 }
 
 fn require_local_addr(state: &AppState, address: IpAddr) -> AppResult<()> {

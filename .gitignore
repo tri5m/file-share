@@ -9,3 +9,4 @@ src-tauri/data/items.json
 .updater/
 
 .claude/
+.playwright-mcp/
