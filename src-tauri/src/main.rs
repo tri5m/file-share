@@ -16,6 +16,8 @@ use tauri::ActivationPolicy;
 const DEFAULT_PORT: u16 = 5421;
 const TRAY_TOGGLE_SHARE_ID: &str = "toggle-share";
 const TRAY_CHECK_UPDATE_ID: &str = "check-update";
+#[cfg(target_os = "windows")]
+const TRAY_ABOUT_ID: &str = "about";
 const TRAY_SHOW_ID: &str = "show";
 const TRAY_QUIT_ID: &str = "quit";
 
@@ -202,8 +204,13 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         MenuItem::with_id(app, TRAY_TOGGLE_SHARE_ID, "启动分享", true, None::<&str>)?;
     let check_update =
         MenuItem::with_id(app, TRAY_CHECK_UPDATE_ID, "检查更新", true, None::<&str>)?;
+    #[cfg(target_os = "windows")]
+    let about = MenuItem::with_id(app, TRAY_ABOUT_ID, "关于", true, None::<&str>)?;
     let show = MenuItem::with_id(app, TRAY_SHOW_ID, "显示窗口", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出", true, None::<&str>)?;
+    #[cfg(target_os = "windows")]
+    let menu = Menu::with_items(app, &[&show, &toggle_share, &check_update, &about, &quit])?;
+    #[cfg(not(target_os = "windows"))]
     let menu = Menu::with_items(app, &[&show, &toggle_share, &check_update, &quit])?;
     let icon = platform_tray_icon().or_else(|| app.default_window_icon().cloned());
 
@@ -245,6 +252,8 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                 });
             }
             TRAY_SHOW_ID => show_main_window(app),
+            #[cfg(target_os = "windows")]
+            TRAY_ABOUT_ID => show_about_dialog(app),
             TRAY_QUIT_ID => app.exit(0),
             _ => {}
         });
@@ -602,6 +611,16 @@ fn set_tray_update_checking(app: &AppHandle, checking: bool) {
             "检查更新"
         });
     }
+}
+
+#[cfg(target_os = "windows")]
+fn show_about_dialog(app: &AppHandle) {
+    let version = app.package_info().version.to_string();
+    let description = format!(
+        "FileShare {version}\n局域网文件共享工具\n\n作者: Trifolium Wang\nGitHub: https://github.com/tri5m/file-share"
+    );
+
+    show_message(rfd::MessageLevel::Info, "关于 FileShare", &description);
 }
 
 fn show_message(level: rfd::MessageLevel, title: &str, description: &str) {
