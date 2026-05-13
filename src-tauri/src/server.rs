@@ -2,6 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
+    process::Command,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -66,6 +67,7 @@ pub struct ServerInfo {
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ShareAddress {
+    pub name: Option<String>,
     pub ip: String,
     pub url: String,
     pub qr: String,
@@ -262,10 +264,10 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         .await
         .map_err(|error| error.to_string())?;
 
-    let lan_ips = lan_ipv4_addresses();
-    let lan_ip = lan_ips
+    let lan_addresses = lan_ipv4_addresses();
+    let lan_ip = lan_addresses
         .first()
-        .cloned()
+        .map(|address| address.ip.clone())
         .unwrap_or_else(|| "127.0.0.1".to_string());
 
     let mut local_addresses = HashSet::from([
@@ -278,7 +280,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         }
     }
 
-    let info = server_info(port, &lan_ips).map_err(|error| error.to_string())?;
+    let info = server_info(port, &lan_addresses).map_err(|error| error.to_string())?;
     let (events_sender, _) = broadcast::channel(64);
     let (download_events_sender, _) = broadcast::channel(64);
     let state = AppState {
@@ -449,18 +451,28 @@ async fn client_info(
     ConnectInfo(address): ConnectInfo<SocketAddr>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_local_addr(&state, address.ip())?;
-    let info = server_info(state.port, std::slice::from_ref(&state.lan_ip)).map_err(AppError::internal)?;
+    let info = server_info(
+        state.port,
+        &[LanAddress {
+            name: None,
+            ip: state.lan_ip.clone(),
+        }],
+    )
+    .map_err(AppError::internal)?;
     Ok(Json(serde_json::json!(info)))
 }
 
 async fn share_info(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
     let addresses = lan_ipv4_addresses();
-    let ips = if addresses.is_empty() {
-        vec![state.lan_ip.clone()]
+    let share_addresses = if addresses.is_empty() {
+        vec![LanAddress {
+            name: None,
+            ip: state.lan_ip.clone(),
+        }]
     } else {
         addresses
     };
-    let info = server_info(state.port, &ips).map_err(AppError::internal)?;
+    let info = server_info(state.port, &share_addresses).map_err(AppError::internal)?;
     Ok(Json(serde_json::json!(info)))
 }
 
@@ -1021,13 +1033,20 @@ fn require_local_addr(state: &AppState, address: IpAddr) -> AppResult<()> {
     Err(AppError::forbidden("管理端只能在服务器本机访问"))
 }
 
-fn server_info(port: u16, lan_ips: &[String]) -> Result<ServerInfo, qrcode::types::QrError> {
+#[derive(Debug, Clone)]
+struct LanAddress {
+    name: Option<String>,
+    ip: String,
+}
+
+fn server_info(port: u16, lan_addresses: &[LanAddress]) -> Result<ServerInfo, qrcode::types::QrError> {
     let mut addresses = Vec::new();
-    for ip in lan_ips {
-        let url = format!("http://{}:{}", ip, port);
+    for address in lan_addresses {
+        let url = format!("http://{}:{}", address.ip, port);
         let qr = qr_svg(&url)?;
         addresses.push(ShareAddress {
-            ip: ip.clone(),
+            name: address.name.clone(),
+            ip: address.ip.clone(),
             url,
             qr,
         });
@@ -1035,6 +1054,7 @@ fn server_info(port: u16, lan_ips: &[String]) -> Result<ServerInfo, qrcode::type
     if addresses.is_empty() {
         let url = format!("http://127.0.0.1:{}", port);
         addresses.push(ShareAddress {
+            name: Some("Localhost".to_string()),
             ip: "127.0.0.1".to_string(),
             qr: qr_svg(&url)?,
             url,
@@ -1060,9 +1080,10 @@ fn qr_svg(url: &str) -> Result<String, qrcode::types::QrError> {
     Ok(qr)
 }
 
-fn lan_ipv4_addresses() -> Vec<String> {
+fn lan_ipv4_addresses() -> Vec<LanAddress> {
     let mut seen = HashSet::new();
     let mut addresses = Vec::new();
+    let names = interface_display_names();
     if let Ok(netifs) = local_ip_address::list_afinet_netifas() {
         for (name, ip) in netifs {
             if !is_shareable_interface(&name) {
@@ -1072,7 +1093,10 @@ fn lan_ipv4_addresses() -> Vec<String> {
                 if is_shareable_ipv4(v4) {
                     let value = v4.to_string();
                     if seen.insert(value.clone()) {
-                        addresses.push(value);
+                        addresses.push(LanAddress {
+                            name: names.get(&name).cloned().or_else(|| Some(name)),
+                            ip: value,
+                        });
                     }
                 }
             }
@@ -1081,11 +1105,84 @@ fn lan_ipv4_addresses() -> Vec<String> {
     if addresses.is_empty() {
         if let Ok(IpAddr::V4(v4)) = local_ip_address::local_ip() {
             if is_shareable_ipv4(v4) {
-                addresses.push(v4.to_string());
+                addresses.push(LanAddress {
+                    name: None,
+                    ip: v4.to_string(),
+                });
             }
         }
     }
     addresses
+}
+
+fn interface_display_names() -> HashMap<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_interface_display_names()
+    }
+    #[cfg(target_os = "windows")]
+    {
+        windows_interface_display_names()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        HashMap::new()
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_interface_display_names() -> HashMap<String, String> {
+    let output = Command::new("networksetup")
+        .arg("-listallhardwareports")
+        .output();
+    let Ok(output) = output else {
+        return HashMap::new();
+    };
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut names = HashMap::new();
+    let mut current_name: Option<String> = None;
+    for line in text.lines() {
+        if let Some(name) = line.strip_prefix("Hardware Port: ") {
+            current_name = Some(name.trim().to_string());
+        } else if let Some(device) = line.strip_prefix("Device: ") {
+            if let Some(name) = current_name.take() {
+                names.insert(device.trim().to_string(), name);
+            }
+        }
+    }
+    names
+}
+
+#[cfg(target_os = "windows")]
+fn windows_interface_display_names() -> HashMap<String, String> {
+    let output = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-NetAdapter | ForEach-Object { \"$($_.InterfaceDescription)`t$($_.Name)`t$($_.InterfaceAlias)\" }",
+        ])
+        .output();
+    let Ok(output) = output else {
+        return HashMap::new();
+    };
+    let mut names = HashMap::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let mut parts = line.split('\t');
+        let description = parts.next().unwrap_or_default().trim();
+        let name = parts.next().unwrap_or_default().trim();
+        let alias = parts.next().unwrap_or_default().trim();
+        let display = if alias.is_empty() { name } else { alias };
+        if display.is_empty() {
+            continue;
+        }
+        if !description.is_empty() {
+            names.insert(description.to_string(), display.to_string());
+        }
+        if !name.is_empty() {
+            names.insert(name.to_string(), display.to_string());
+        }
+    }
+    names
 }
 
 fn is_shareable_ipv4(address: Ipv4Addr) -> bool {

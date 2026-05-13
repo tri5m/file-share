@@ -184,6 +184,89 @@ h2 {
   justify-content: flex-end;
 }
 
+.global-toast-stack {
+  position: fixed;
+  top: 18px;
+  right: 18px;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.global-toast {
+  position: relative;
+  min-width: min(320px, calc(100vw - 32px));
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 10px 34px 10px 16px;
+  border-radius: 10px;
+  background: rgba(17, 24, 39, 0.78);
+  color: #fff;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.24);
+  transform: translateY(-8px);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.global-toast.show {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.global-toast.success {
+  background: rgba(16, 185, 129, 0.78);
+}
+
+.global-toast.warning {
+  background: rgba(217, 119, 6, 0.78);
+}
+
+.global-toast.error {
+  background: rgba(220, 38, 38, 0.78);
+}
+
+.global-toast-message {
+  text-align: center;
+  display: block;
+}
+
+.global-toast-close {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 18px !important;
+  height: 18px !important;
+  min-height: 18px !important;
+  min-width: 18px !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  color: #111 !important;
+  background: #fff !important;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 18px;
+  text-align: center;
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.18);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+.global-toast-close:hover {
+  background: #f3f4f6 !important;
+}
+
 .usage-tips {
   display: flex;
   align-items: center;
@@ -316,17 +399,14 @@ h2 {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   justify-self: start;
-  gap: 6px;
-  width: min(100%, 190px);
+  gap: 5px;
+  width: min(100%, 166px);
   min-width: 0;
-  padding: 3px 8px 3px 9px;
-  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
-  border-radius: 999px;
-  background:
-    linear-gradient(180deg, var(--surface-overlay), var(--surface-soft));
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    0 1px 2px rgba(15, 23, 42, 0.04);
+  padding: 3px 4px 3px 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
 .address-picker::after {
@@ -343,9 +423,7 @@ h2 {
 
 .address-picker:has(.client-address-select:focus) {
   border-color: var(--accent-soft-border);
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .address-picker span {
@@ -362,13 +440,13 @@ h2 {
 .client-address-select {
   width: 100%;
   min-width: 0;
-  padding: 2px 16px 2px 0;
+  padding: 1px 15px 1px 0;
   border: 0;
   border-radius: 0;
   appearance: none;
   background: transparent;
   color: var(--text-soft);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 400;
   line-height: 1.25;
   outline: none;
@@ -382,6 +460,7 @@ h2 {
   overflow: hidden;
   color: var(--text-soft);
   font-size: 12px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

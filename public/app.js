@@ -11,6 +11,7 @@
     shareInfo: null,
     selectedAddressUrl: '',
     statusTimer: null,
+    toastId: 0,
     adminFileSharing: false,
     adminDragDropBound: false,
     adminDropFeedbackTimer: null
@@ -18,6 +19,40 @@
 
   function $(id) {
     return document.getElementById(id);
+  }
+
+  function showToast(message, type = 'info', duration = 3200) {
+    if (!message) return;
+
+    let stack = $('globalToast');
+    if (!stack) {
+      stack = document.createElement('div');
+      stack.id = 'globalToast';
+      stack.className = 'global-toast-stack';
+      stack.setAttribute('aria-live', 'polite');
+      document.body.appendChild(stack);
+    }
+
+    const toast = document.createElement('div');
+    const toastId = `toast-${++state.toastId}`;
+    toast.className = `global-toast ${type}`;
+    toast.id = toastId;
+    toast.innerHTML = '<span class="global-toast-message"></span><button class="global-toast-close" type="button" aria-label="关闭提示">×</button>';
+    const messageNode = toast.querySelector('.global-toast-message');
+    if (messageNode) messageNode.textContent = message;
+    toast.querySelector('.global-toast-close')?.addEventListener('click', () => hideToast(toast));
+    stack.appendChild(toast);
+    requestAnimationFrame(() => toast.classList.add('show'));
+
+    window.setTimeout(() => hideToast(toast), duration);
+  }
+
+  function hideToast(toast) {
+    if (!toast) return;
+    toast.classList.remove('show');
+    window.setTimeout(() => {
+      toast.remove();
+    }, 180);
   }
 
   function formatSize(size) {
@@ -59,7 +94,12 @@
     if (!info) return [];
     const addresses = Array.isArray(info.addresses) ? info.addresses : [];
     if (addresses.length) return addresses;
-    return info.url ? [{ ip: info.ip || new URL(info.url).hostname, url: info.url, qr: info.qr }] : [];
+    return info.url ? [{ name: '', ip: info.ip || new URL(info.url).hostname, url: info.url, qr: info.qr }] : [];
+  }
+
+  function formatAddressLabel(address) {
+    const ip = address.ip || new URL(address.url).hostname;
+    return address.name ? `${address.name} · ${ip}` : ip;
   }
 
   function currentShareAddress() {
@@ -226,7 +266,7 @@
         || null;
       state.selectedAddressUrl = selected?.url || '';
       select.innerHTML = addresses.map((item) => {
-        const label = item.ip || new URL(item.url).hostname;
+        const label = formatAddressLabel(item);
         return `<option value="${escapeHtml(item.url)}"${item.url === state.selectedAddressUrl ? ' selected' : ''}>${escapeHtml(label)}</option>`;
       }).join('');
       if (addressPicker) addressPicker.hidden = addresses.length <= 1;
@@ -242,7 +282,8 @@
     if (copy) {
       copy.onclick = async () => {
         const copied = await copyText(state.role === 'admin' ? currentShareUrl() : window.location.origin);
-        copy.textContent = copied ? '已复制' : '复制失败';
+        copy.textContent = copied ? '已复制' : '复制链接';
+        showToast(copied ? '链接已复制' : '复制失败', copied ? 'success' : 'error');
         setTimeout(() => { copy.textContent = '复制链接'; }, 1200);
       };
     }
@@ -367,14 +408,14 @@
           document.body.classList.remove('server-stopped');
           button.disabled = false;
           button.textContent = '停止分享';
-          alert(String(error));
+          showToast(String(error), 'error');
         }
         return;
       }
 
       const port = Number(portInput.value);
       if (!Number.isInteger(port) || port < 1 || port > 65535) {
-        alert('请输入有效端口号');
+        showToast('请输入有效端口号', 'warning');
         return;
       }
 
@@ -386,7 +427,7 @@
         await applyServerInfo(info);
       } catch (error) {
         resetServerUi();
-        alert(String(error));
+        showToast(String(error), 'error');
       }
     });
   }
@@ -397,7 +438,10 @@
     const events = new EventSource(`${state.apiBase}/api/events`);
     state.events = events;
     events.onopen = () => { status.textContent = '实时同步'; };
-    events.onerror = () => { status.textContent = '重连中'; };
+    events.onerror = () => {
+      status.textContent = '重连中';
+      showToast('连接中断，正在重试', 'warning', 2200);
+    };
     events.onmessage = (event) => {
       state.items = JSON.parse(event.data);
       render();
@@ -534,17 +578,11 @@
   }
 
   function showStatusMessage(message) {
-    const status = $('status');
-    if (status) {
-      status.textContent = message;
-      status.classList.add('status-error');
-      window.setTimeout(() => {
-        status.classList.remove('status-error');
-        if (state.serverRunning) {
-          status.textContent = '实时同步';
-        }
-      }, 1800);
-    }
+    showToast(message, 'error');
+  }
+
+  function showUpdateHint(message) {
+    showToast(message, 'success', 10000);
   }
 
   async function bindAdminFileDrop() {
@@ -627,7 +665,8 @@
       const url = state.role === 'admin' ? currentShareUrl() : window.location.origin;
       if (!url) return;
       const copied = await copyText(url);
-      copyButton.textContent = copied ? '已复制' : '复制失败';
+      copyButton.textContent = copied ? '已复制' : '复制链接';
+      showToast(copied ? '链接已复制' : '复制失败', copied ? 'success' : 'error');
       setTimeout(() => { copyButton.textContent = '复制链接'; }, 1200);
     });
   }
@@ -641,14 +680,17 @@
         try {
           await applyServerInfo(event.payload);
         } catch (error) {
-          alert(String(error));
+          showToast(String(error), 'error');
         }
       });
       await events.listen('share-stopped', () => {
         resetServerUi();
       });
       await events.listen('share-error', (event) => {
-        alert(String(event.payload || '操作失败'));
+        showToast(String(event.payload || '操作失败'), 'error');
+      });
+      await events.listen('update-available', () => {
+        showUpdateHint('发现新版本，可在托盘检查更新');
       });
       await events.listen('admin-files-added', (event) => {
         flashAdminDropSuccess(Number(event.payload) || 0);
@@ -656,6 +698,27 @@
     } catch (error) {
       console.warn('Tauri event bridge unavailable:', error);
     }
+  }
+
+  function checkStartupUpdateHint() {
+    const invoke = window.__TAURI__?.core?.invoke;
+    if (!invoke) return;
+
+    let attempts = 0;
+    const timer = window.setInterval(async () => {
+      try {
+        attempts += 1;
+        if (await invoke('has_update_available')) {
+          showUpdateHint('发现新版本，可在托盘检查更新');
+          window.clearInterval(timer);
+        } else if (attempts >= 12) {
+          window.clearInterval(timer);
+        }
+      } catch (error) {
+        window.clearInterval(timer);
+        console.warn('Update hint check unavailable:', error);
+      }
+    }, 2500);
   }
 
   function bindForms() {
@@ -742,7 +805,7 @@
             dropZone.classList.remove('uploading');
           }
           updateFileHint('上传失败，请重新选择');
-          alert(error.message);
+          showToast(error.message, 'error');
         });
       });
 
@@ -762,7 +825,7 @@
         dropZone.addEventListener('drop', (event) => {
           if (event.dataTransfer?.files?.length) {
             fileInput.files = event.dataTransfer.files;
-            uploadSelectedFiles().catch((error) => alert(error.message));
+            uploadSelectedFiles().catch((error) => showToast(error.message, 'error'));
           }
         });
       }
@@ -776,7 +839,7 @@
     if (state.role === 'admin' && pickAdminFilesButton) {
       const openAdminPicker = (event) => {
         event?.preventDefault();
-        shareAdminFiles().catch((error) => alert(String(error)));
+        shareAdminFiles().catch((error) => showToast(String(error), 'error'));
       };
 
       pickAdminFilesButton.addEventListener('click', openAdminPicker);
@@ -805,8 +868,7 @@
             await window.__TAURI__.core.invoke('reveal_admin_file', { id });
           } catch (error) {
             const message = error?.message || String(error) || '无法打开文件位置';
-            showStatusMessage(`打开失败：${message}`);
-            window.alert(`打开失败：${message}`);
+            showToast(`打开失败：${message}`, 'error');
           }
           return;
         }
@@ -816,7 +878,7 @@
         const item = state.items.find((entry) => entry.id === id);
         if (!item) return;
         if (item.exists === false) {
-          alert('源文件已不存在');
+          showToast('源文件已不存在', 'warning');
           return;
         }
         window.location.href = `${state.apiBase}/api/items/${id}/download`;
@@ -825,7 +887,8 @@
         const item = state.items.find((entry) => entry.id === id);
         if (!item) return;
         const copied = await copyText(item.content || '');
-        button.textContent = copied ? '已复制' : '复制失败';
+        button.textContent = copied ? '已复制' : '复制';
+        showToast(copied ? '已复制' : '复制失败', copied ? 'success' : 'error');
         setTimeout(() => { button.textContent = '复制'; }, 1200);
       }
       if (action === 'copy-link') {
@@ -834,12 +897,18 @@
         const copied = await copyText(getDownloadUrl(item));
         button.classList.toggle('copied', copied);
         button.classList.toggle('copy-failed', !copied);
+        showToast(copied ? '链接已复制' : '复制失败', copied ? 'success' : 'error');
         setTimeout(() => {
           button.classList.remove('copied', 'copy-failed');
         }, 1200);
       }
       if (action === 'delete' && state.role === 'admin') {
-        await request(`/api/items/${id}`, { method: 'DELETE' });
+        try {
+          await request(`/api/items/${id}`, { method: 'DELETE' });
+          showToast('已移除共享项', 'success');
+        } catch (error) {
+          showToast(String(error), 'error');
+        }
       }
     });
   }
@@ -854,6 +923,7 @@
       if (state.role === 'admin' && state.isTauri) {
         bindServerControls();
         bindTauriEvents();
+        checkStartupUpdateHint();
         bindAdminFileDrop().catch((error) => console.warn('Tauri file drop unavailable:', error));
         startServerStatusSync();
         return;

@@ -1,6 +1,6 @@
 [package]
 name = "fileshare"
-version = "1.0.6"
+version = "1.0.7"
 description = "LAN file sharing desktop app"
 authors = ["Trifolium Wang <trifolium.wang@gmail.com>"]
 license = "MIT"

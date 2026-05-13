@@ -24,6 +24,7 @@ const TRAY_QUIT_ID: &str = "quit";
 struct ServerState {
     info: Mutex<Option<server::ServerInfo>>,
     preferred_port: Mutex<u16>,
+    update_available: Mutex<bool>,
     tray_menu: Mutex<Option<TrayMenuItems>>,
 }
 
@@ -154,6 +155,15 @@ async fn check_for_updates(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn has_update_available(state: tauri::State<'_, ServerState>) -> Result<bool, String> {
+    state
+        .update_available
+        .lock()
+        .map_err(|error| error.to_string())
+        .map(|value| *value)
+}
+
+#[tauri::command]
 fn set_preferred_port(port: u16, state: tauri::State<'_, ServerState>) -> Result<(), String> {
     if port == 0 {
         return Err("端口号无效".to_string());
@@ -171,6 +181,7 @@ fn main() {
         .manage(ServerState {
             info: Mutex::new(None),
             preferred_port: Mutex::new(DEFAULT_PORT),
+            update_available: Mutex::new(false),
             tray_menu: Mutex::new(None),
         })
         .invoke_handler(tauri::generate_handler![
@@ -181,6 +192,7 @@ fn main() {
             stop_server,
             server_status,
             check_for_updates,
+            has_update_available,
             set_preferred_port
         ])
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -546,6 +558,7 @@ fn set_tray_share_running(app: &AppHandle, running: bool) {
 async fn check_for_updates_on_startup(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
 
+    println!("启动时检查更新...");
     let update = app
         .updater_builder()
         .timeout(Duration::from_secs(5))
@@ -556,6 +569,12 @@ async fn check_for_updates_on_startup(app: AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
 
     if update.is_some() {
+        println!("启动时发现新版本");
+        if let Some(state) = app.try_state::<ServerState>() {
+            if let Ok(mut available) = state.update_available.lock() {
+                *available = true;
+            }
+        }
         let _ = app.emit("update-available", ());
     }
 
@@ -590,9 +609,21 @@ async fn check_for_updates_inner(app: AppHandle) -> Result<(), String> {
 
     let Some(update) = update else {
         println!("当前已是最新版本");
+        if let Some(state) = app.try_state::<ServerState>() {
+            if let Ok(mut available) = state.update_available.lock() {
+                *available = false;
+            }
+        }
         show_message(rfd::MessageLevel::Info, "检查更新", "当前已经是最新版本。");
         return Ok(());
     };
+
+    println!("检查更新发现新版本: {}", update.version);
+    if let Some(state) = app.try_state::<ServerState>() {
+        if let Ok(mut available) = state.update_available.lock() {
+            *available = true;
+        }
+    }
 
     let current_version = app.package_info().version.to_string();
     let new_version = update.version.clone();
