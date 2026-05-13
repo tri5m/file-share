@@ -3,7 +3,7 @@
 mod server;
 
 use serde::Serialize;
-use std::{path::PathBuf, sync::Mutex};
+use std::{path::PathBuf, sync::Mutex, time::Duration};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -547,7 +547,9 @@ async fn check_for_updates_on_startup(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
 
     let update = app
-        .updater()
+        .updater_builder()
+        .timeout(Duration::from_secs(5))
+        .build()
         .map_err(|error| error.to_string())?
         .check()
         .await
@@ -566,7 +568,9 @@ async fn check_for_updates_inner(app: AppHandle) -> Result<(), String> {
     println!("开始检查更新...");
 
     let updater = app
-        .updater()
+        .updater_builder()
+        .timeout(Duration::from_secs(5))
+        .build()
         .map_err(|error| {
             let err_msg = format!("创建updater失败: {}", error);
             println!("{}", err_msg);

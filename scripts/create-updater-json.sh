@@ -13,7 +13,8 @@ signature_path="$4"
 output_path="$5"
 notes_text="${6:-}"
 asset_name="$(basename "$asset_path")"
-download_url="https://github.com/tri5m/file-share/releases/latest/download/$asset_name"
+download_base_url="${UPDATE_DOWNLOAD_BASE_URL:-https://github.com/tri5m/file-share/releases/latest/download}"
+download_url="${download_base_url%/}/$asset_name"
 
 python3 - "$platform" "$version" "$download_url" "$signature_path" "$output_path" "$notes_text" <<'PY'
 import json

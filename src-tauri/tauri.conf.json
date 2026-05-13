@@ -19,6 +19,9 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM4MjQzMjkyMjU0MTEyRUIKUldUckVrRWxraklrT1Bvem9wa2twNzUrcU8wQjRReStmVWlKbkhweGFUMFpNNDlMOVNJTjk0dDQK",
       "endpoints": [
+        "https://gh-proxy.org/https://github.com/tri5m/file-share/releases/latest/download/latest-{{target}}-{{arch}}.json",
+        "https://hk.gh-proxy.org/https://github.com/tri5m/file-share/releases/latest/download/latest-{{target}}-{{arch}}.json",
+        "https://cdn.gh-proxy.org/https://github.com/tri5m/file-share/releases/latest/download/latest-{{target}}-{{arch}}.json",
         "https://github.com/tri5m/file-share/releases/latest/download/latest-{{target}}-{{arch}}.json"
       ]
     }

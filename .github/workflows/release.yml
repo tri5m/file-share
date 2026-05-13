@@ -138,6 +138,8 @@ jobs:
 
       - name: Prepare macOS updater assets
         if: runner.os == 'macOS'
+        env:
+          UPDATE_DOWNLOAD_BASE_URL: https://gh-proxy.org/https://github.com/tri5m/file-share/releases/latest/download
         run: |
           version="${GITHUB_REF_NAME#v}"
           version="${version/.rc/-rc.}"
@@ -162,6 +164,8 @@ jobs:
       - name: Prepare Windows updater metadata
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          UPDATE_DOWNLOAD_BASE_URL: https://gh-proxy.org/https://github.com/tri5m/file-share/releases/latest/download
         run: |
           version="${GITHUB_REF_NAME#v}"
           version="${version/.rc/-rc.}"
