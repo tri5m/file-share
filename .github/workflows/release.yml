@@ -157,7 +157,7 @@ jobs:
             "$updater_asset" \
             "$updater_asset.sig" \
             "release-assets/${{ matrix.latest_name }}" \
-            "解决下载速度问题"
+            "提升用户体验"
 
       - name: Prepare Windows updater metadata
         if: runner.os == 'Windows'
@@ -172,7 +172,7 @@ jobs:
             "$updater_asset" \
             "$updater_asset.sig" \
             "release-assets/${{ matrix.latest_name }}" \
-            "解决下载速度问题"
+            "提升用户体验"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -187,5 +187,5 @@ jobs:
         with:
           files: ${{ matrix.release_artifact_path || matrix.artifact_path }}
           body: |
-            解决下载速度问题
+            提升用户体验
           prerelease: ${{ contains(github.ref_name, 'rc') }}

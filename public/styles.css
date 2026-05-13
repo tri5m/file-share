@@ -704,6 +704,11 @@ button.danger:hover {
   font-size: 14px;
 }
 
+#status.status-error {
+  color: var(--danger);
+  font-weight: 600;
+}
+
 .items {
   display: grid;
   gap: 8px;
@@ -724,6 +729,15 @@ button.danger:hover {
 .item:hover {
   border-color: var(--accent-soft-border);
   box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.item-missing {
+  opacity: 0.62;
+}
+
+.item-missing .item-title strong,
+.item-missing .meta {
+  text-decoration: line-through;
 }
 
 .item-title {
@@ -783,6 +797,36 @@ button.danger:hover {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.25;
+}
+
+.download-status {
+  display: inline;
+  align-items: center;
+  margin-left: 8px;
+  padding: 1px 5px;
+  border: 1px solid color-mix(in srgb, var(--success-soft-border) 70%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-success) 72%, transparent);
+  color: var(--success);
+  font-size: 10px;
+  line-height: 1;
+}
+
+button.secondary:disabled {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+button.remove-action {
+  border-color: var(--line);
+  background: var(--surface-soft);
+  color: color-mix(in srgb, var(--text-soft) 70%, transparent);
+}
+
+button.remove-action:hover {
+  border-color: var(--line);
+  background: var(--surface-soft);
+  color: var(--text-soft);
 }
 
 pre {

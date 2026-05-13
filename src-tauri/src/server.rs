@@ -1,13 +1,14 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
     sync::Arc,
+    time::{Duration, Instant},
 };
 
 use async_stream::stream;
 use axum::{
-    body::Body,
+    body::{Body, Bytes},
     extract::{connect_info::ConnectInfo, DefaultBodyLimit, Multipart, Path as AxumPath, State},
     http::{
         header::{
@@ -28,7 +29,6 @@ use tokio::{
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
     sync::{broadcast, oneshot, Mutex},
 };
-use tokio_util::io::ReaderStream;
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
@@ -49,6 +49,8 @@ struct AppState {
     local_addresses: Arc<HashSet<IpAddr>>,
     lock: Arc<Mutex<()>>,
     events: broadcast::Sender<Vec<PublicItem>>,
+    download_events: broadcast::Sender<Vec<DownloadPublicItem>>,
+    downloads: Arc<Mutex<HashMap<String, DownloadProgress>>>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -62,6 +64,7 @@ pub struct ServerInfo {
 
 pub struct RunningServer {
     shutdown: Option<oneshot::Sender<()>>,
+    download_shutdown: Option<oneshot::Sender<()>>,
     state: AppState,
 }
 
@@ -107,6 +110,7 @@ struct PublicItem {
     mime: Option<String>,
     size: u64,
     source: String,
+    exists: bool,
     created_at: String,
     updated_at: String,
 }
@@ -117,11 +121,47 @@ struct TextPayload {
     source: Option<String>,
 }
 
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DownloadPublicItem {
+    item_id: String,
+    speed_bps: u64,
+    active_count: u32,
+}
+
+#[derive(Debug)]
+struct DownloadProgress {
+    active_count: u32,
+    bytes_since_tick: u64,
+    current_speed_bps: u64,
+    last_tick: Instant,
+}
+
+struct DownloadSession {
+    state: AppState,
+    item_id: String,
+}
+
+impl Drop for DownloadSession {
+    fn drop(&mut self) {
+        let state = self.state.clone();
+        let item_id = self.item_id.clone();
+        tokio::spawn(async move {
+            mark_download_finished(&state, &item_id).await;
+        });
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        let mut headers = self.headers;
+        headers.insert(
+            CONTENT_TYPE,
+            HeaderValue::from_static("application/json; charset=utf-8"),
+        );
         (
             self.status,
-            self.headers,
+            headers,
             Json(ErrorBody {
                 error: self.message,
             }),
@@ -233,6 +273,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
 
     let info = server_info(port, &lan_ip).map_err(|error| error.to_string())?;
     let (events_sender, _) = broadcast::channel(64);
+    let (download_events_sender, _) = broadcast::channel(64);
     let state = AppState {
         port,
         data_path,
@@ -241,7 +282,25 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         local_addresses: Arc::new(local_addresses),
         lock: Arc::new(Mutex::new(())),
         events: events_sender,
+        download_events: download_events_sender,
+        downloads: Arc::new(Mutex::new(HashMap::new())),
     };
+    let (download_shutdown_tx, mut download_shutdown_rx) = oneshot::channel::<()>();
+    let download_state = state.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tokio::select! {
+                _ = interval.tick() => {
+                    update_download_speeds(&download_state).await;
+                    if let Err(error) = broadcast_download_events(&download_state).await {
+                        eprintln!("FileShare download status broadcast failed: {}", error.message);
+                    }
+                }
+                _ = &mut download_shutdown_rx => break,
+            }
+        }
+    });
 
     let app = Router::new()
         .route("/", get(client_html))
@@ -252,6 +311,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         .route("/api/share-info", get(share_info))
         .route("/api/client-info", get(client_info))
         .route("/api/events", get(sse_events))
+        .route("/api/download-events", get(download_events))
         .route("/api/text", post(add_text))
         .route(
             "/api/upload",
@@ -285,6 +345,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
     if let Some(handle) = SERVER_HANDLE.get() {
         *handle.lock().await = Some(RunningServer {
             shutdown: Some(shutdown_tx),
+            download_shutdown: Some(download_shutdown_tx),
             state,
         });
     }
@@ -301,6 +362,9 @@ pub async fn stop() -> Result<(), String> {
     };
     let mut guard = handle.lock().await;
     if let Some(mut running) = guard.take() {
+        if let Some(download_shutdown) = running.download_shutdown.take() {
+            let _ = download_shutdown.send(());
+        }
         if let Some(shutdown) = running.shutdown.take() {
             let _ = shutdown.send(());
         }
@@ -353,6 +417,10 @@ pub async fn copy_item_to_path(id: &str, target_path: &Path) -> Result<(), Strin
     Ok(())
 }
 
+pub async fn item_file_path(id: &str) -> Result<PathBuf, String> {
+    item_storage_path(id).await
+}
+
 async fn client_html() -> impl IntoResponse {
     html(CLIENT_HTML)
 }
@@ -390,6 +458,26 @@ async fn sse_events(
 > {
     let initial = public_items(&read_items(&state).await.unwrap_or_default());
     let mut receiver = state.events.subscribe();
+    let stream = stream! {
+        yield Ok(axum::response::sse::Event::default().json_data(initial).unwrap());
+        loop {
+            match receiver.recv().await {
+                Ok(items) => yield Ok(axum::response::sse::Event::default().json_data(items).unwrap()),
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    };
+    Sse::new(stream)
+}
+
+async fn download_events(
+    State(state): State<AppState>,
+) -> Sse<
+    impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+> {
+    let initial = download_snapshot(&state).await;
+    let mut receiver = state.download_events.subscribe();
     let stream = stream! {
         yield Ok(axum::response::sse::Event::default().json_data(initial).unwrap());
         loop {
@@ -572,7 +660,8 @@ async fn download(
     let file_size = metadata.len();
     let fallback_name = ascii_fallback_name(&item.title);
     let range = parse_range_header(headers.get(RANGE), file_size)?;
-
+    let download_id = item.id.clone();
+    mark_download_started(&state, &download_id).await;
     let mut response_headers = HeaderMap::new();
     response_headers.insert(ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     response_headers.insert(
@@ -605,7 +694,28 @@ async fn download(
             CONTENT_RANGE,
             HeaderValue::from_str(&format!("bytes {start}-{end}/{file_size}")).unwrap(),
         );
-        let stream = ReaderStream::with_capacity(file.take(length), DOWNLOAD_BUFFER_BYTES);
+        let stream = stream! {
+            let _download_session = DownloadSession {
+                state: state.clone(),
+                item_id: download_id.clone(),
+            };
+            let mut reader = file.take(length);
+            let mut buffer = vec![0u8; DOWNLOAD_BUFFER_BYTES];
+            loop {
+                let read = match reader.read(&mut buffer).await {
+                    Ok(read) => read,
+                    Err(error) => {
+                        yield Err::<Bytes, std::io::Error>(error);
+                        break;
+                    }
+                };
+                if read == 0 {
+                    break;
+                }
+                record_download_bytes(&state, &download_id, read as u64).await;
+                yield Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(&buffer[..read]));
+            }
+        };
         return Ok((
             StatusCode::PARTIAL_CONTENT,
             response_headers,
@@ -618,7 +728,28 @@ async fn download(
         CONTENT_LENGTH,
         HeaderValue::from_str(&file_size.to_string()).unwrap(),
     );
-    let stream = ReaderStream::with_capacity(file, DOWNLOAD_BUFFER_BYTES);
+    let stream = stream! {
+        let _download_session = DownloadSession {
+            state: state.clone(),
+            item_id: download_id.clone(),
+        };
+        let mut reader = file;
+        let mut buffer = vec![0u8; DOWNLOAD_BUFFER_BYTES];
+        loop {
+            let read = match reader.read(&mut buffer).await {
+                Ok(read) => read,
+                Err(error) => {
+                    yield Err::<Bytes, std::io::Error>(error);
+                    break;
+                }
+            };
+            if read == 0 {
+                break;
+            }
+            record_download_bytes(&state, &download_id, read as u64).await;
+            yield Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(&buffer[..read]));
+        }
+    };
     Ok((response_headers, Body::from_stream(stream)).into_response())
 }
 
@@ -648,6 +779,86 @@ async fn add_items(state: &AppState, mut new_items: Vec<Item>) -> AppResult<Vec<
     write_items_unlocked(state, &new_items).await?;
     state.events.send(public_items(&new_items))?;
     Ok(public)
+}
+
+async fn mark_download_started(state: &AppState, item_id: &str) {
+    let mut downloads = state.downloads.lock().await;
+    let entry = downloads
+        .entry(item_id.to_string())
+        .or_insert(DownloadProgress {
+            active_count: 0,
+            bytes_since_tick: 0,
+            current_speed_bps: 0,
+            last_tick: Instant::now(),
+        });
+    entry.active_count = entry.active_count.saturating_add(1);
+    if entry.active_count == 1 {
+        entry.bytes_since_tick = 0;
+        entry.current_speed_bps = 0;
+        entry.last_tick = Instant::now();
+    }
+    drop(downloads);
+    broadcast_download_events(state).await.ok();
+}
+
+async fn record_download_bytes(state: &AppState, item_id: &str, bytes: u64) {
+    let mut downloads = state.downloads.lock().await;
+    if let Some(entry) = downloads.get_mut(item_id) {
+        entry.bytes_since_tick = entry.bytes_since_tick.saturating_add(bytes);
+    }
+}
+
+async fn mark_download_finished(state: &AppState, item_id: &str) {
+    let mut downloads = state.downloads.lock().await;
+    if let Some(entry) = downloads.get_mut(item_id) {
+        entry.active_count = entry.active_count.saturating_sub(1);
+        if entry.active_count == 0 {
+            downloads.remove(item_id);
+        }
+    }
+    drop(downloads);
+    broadcast_download_events(state).await.ok();
+}
+
+async fn broadcast_download_events(state: &AppState) -> AppResult<()> {
+    let snapshot = download_snapshot(state).await;
+    state
+        .download_events
+        .send(snapshot)
+        .map_err(AppError::internal)?;
+    Ok(())
+}
+
+async fn download_snapshot(state: &AppState) -> Vec<DownloadPublicItem> {
+    let downloads = state.downloads.lock().await;
+    downloads
+        .iter()
+        .filter(|(_, entry)| entry.active_count > 0)
+        .map(|(item_id, entry)| DownloadPublicItem {
+            item_id: item_id.clone(),
+            speed_bps: entry.current_speed_bps,
+            active_count: entry.active_count,
+        })
+        .collect()
+}
+
+async fn update_download_speeds(state: &AppState) {
+    let mut downloads = state.downloads.lock().await;
+    let now = Instant::now();
+    downloads.retain(|_, entry| {
+        if entry.active_count == 0 {
+            return false;
+        }
+        let elapsed = now.saturating_duration_since(entry.last_tick).as_secs_f64();
+        entry.current_speed_bps = if elapsed > 0.0 {
+            (entry.bytes_since_tick as f64 / elapsed) as u64
+        } else {
+            0
+        };
+        entry.bytes_since_tick = 0;
+        entry.last_tick = now;
+        true
+    });
 }
 
 async fn read_items(state: &AppState) -> AppResult<Vec<Item>> {
@@ -723,6 +934,7 @@ fn public_items(items: &[Item]) -> Vec<PublicItem> {
             mime: item.mime.clone(),
             size: item.size,
             source: item.source.clone(),
+            exists: item.kind == "text" || Path::new(&item.storage_path).exists(),
             created_at: item.created_at.clone(),
             updated_at: item.updated_at.clone(),
         })

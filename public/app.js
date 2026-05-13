@@ -2,8 +2,10 @@
   const state = {
     role: 'client',
     items: [],
+    downloadStats: {},
     apiBase: '',
     events: null,
+    downloadEvents: null,
     isTauri: false,
     serverRunning: false,
     shareInfo: null,
@@ -22,6 +24,11 @@
     if (size < 1024) return `${size} B`;
     if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
     return `${(size / 1024 / 1024).toFixed(1)} MB`;
+  }
+
+  function formatSpeed(size) {
+    if (!Number.isFinite(size) || size <= 0) return '0 B/s';
+    return `${formatSize(size)}/s`;
   }
 
   function formatTime(value) {
@@ -64,6 +71,7 @@
 
     root.innerHTML = state.items.map((item) => {
       const isText = item.kind === 'text';
+      const isMissing = item.kind !== 'text' && item.exists === false;
       const badge = isText ? '文本' : '文件';
       const title = isText
         ? escapeHtml(previewText(item.content || item.title, 40))
@@ -71,17 +79,25 @@
       const titleAction = isText
         ? ''
         : `<button class="inline-icon-button" data-action="copy-link" data-id="${item.id}" aria-label="复制文件链接" title="复制文件链接">🔗</button>`;
+      const downloadStat = state.role === 'admin' && !isText ? state.downloadStats[item.id] : null;
+      const downloadStatus = downloadStat
+        ? `<span class="download-status">⬇ ${formatSpeed(downloadStat.speedBps)}</span>`
+        : '';
       const description = isText
         ? `<div class="meta">${formatTextLength(item.content || item.title)} · ${formatTime(item.createdAt)}</div>`
-        : `<div class="meta">${formatSize(item.size)} · ${formatTime(item.createdAt)}</div>`;
+        : `<div class="meta">${formatSize(item.size)} · ${formatTime(item.createdAt)}${downloadStatus}</div>`;
       const primaryAction = isText
         ? `<button class="secondary" data-action="copy" data-id="${item.id}">复制</button>`
-        : `<button class="secondary" data-action="download" data-id="${item.id}">下载</button>`;
+        : (isMissing
+          ? `<button class="secondary" disabled type="button">已失效</button>`
+          : (state.role === 'admin'
+            ? `<button class="secondary" data-action="reveal" data-id="${item.id}">查看</button>`
+            : `<button class="secondary" data-action="download" data-id="${item.id}">下载</button>`));
       const actions = state.role === 'admin'
-        ? `${primaryAction}<button class="danger" data-action="delete" data-id="${item.id}">删除</button>`
+        ? `${primaryAction}<button class="secondary remove-action" data-action="delete" data-id="${item.id}">移除</button>`
         : primaryAction;
       return `
-        <article class="item">
+        <article class="item${isMissing ? ' item-missing' : ''}">
           <div class="item-main">
             <div class="item-title">
               <span class="badge">${badge}</span>
@@ -189,9 +205,14 @@
     state.serverRunning = false;
     state.apiBase = '';
     state.items = [];
+    state.downloadStats = {};
     if (state.events) {
       state.events.close();
       state.events = null;
+    }
+    if (state.downloadEvents) {
+      state.downloadEvents.close();
+      state.downloadEvents = null;
     }
     const root = $('items');
     if (root) root.innerHTML = '';
@@ -311,6 +332,28 @@
       state.items = JSON.parse(event.data);
       render();
     };
+    if (state.role === 'admin') {
+      connectDownloadEvents();
+    }
+  }
+
+  function connectDownloadEvents() {
+    if (state.downloadEvents) state.downloadEvents.close();
+    const events = new EventSource(`${state.apiBase}/api/download-events`);
+    state.downloadEvents = events;
+    events.onerror = () => {
+      state.downloadStats = {};
+      render();
+    };
+    events.onmessage = (event) => {
+      const stats = JSON.parse(event.data);
+      state.downloadStats = Object.fromEntries(
+        stats
+          .filter((item) => item.activeCount > 0)
+          .map((item) => [item.itemId, item])
+      );
+      render();
+    };
   }
 
   async function addAdminLocalFiles(paths) {
@@ -418,6 +461,20 @@
     state.adminDropFeedbackTimer = window.setTimeout(() => {
       setAdminDropPresentation('idle');
     }, 1600);
+  }
+
+  function showStatusMessage(message) {
+    const status = $('status');
+    if (status) {
+      status.textContent = message;
+      status.classList.add('status-error');
+      window.setTimeout(() => {
+        status.classList.remove('status-error');
+        if (state.serverRunning) {
+          status.textContent = '实时同步';
+        }
+      }, 1800);
+    }
   }
 
   async function bindAdminFileDrop() {
@@ -664,10 +721,28 @@
     $('items').addEventListener('click', async (event) => {
       const button = event.target.closest('button[data-action]');
       if (!button) return;
+      if (button.disabled) return;
       const { action, id } = button.dataset;
+      if (action === 'reveal' && state.role === 'admin') {
+        const item = state.items.find((entry) => entry.id === id);
+        if (!item) return;
+        if (state.isTauri) {
+          try {
+            await window.__TAURI__.core.invoke('reveal_admin_file', { id });
+          } catch (error) {
+            const message = error?.message || String(error) || '无法打开文件位置';
+            showStatusMessage(`打开失败：${message}`);
+            window.alert(`打开失败：${message}`);
+          }
+          return;
+        }
+        window.open(getDownloadUrl(item), '_blank');
+      }
       if (action === 'download') {
-        if (state.role === 'admin' && state.isTauri) {
-          await window.__TAURI__.core.invoke('download_admin_file', { id });
+        const item = state.items.find((entry) => entry.id === id);
+        if (!item) return;
+        if (item.exists === false) {
+          alert('源文件已不存在');
           return;
         }
         window.location.href = `${state.apiBase}/api/items/${id}/download`;

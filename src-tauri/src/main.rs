@@ -76,6 +76,50 @@ async fn download_admin_file(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn reveal_admin_file(id: String) -> Result<(), String> {
+    let path = server::item_file_path(&id).await?;
+    reveal_file(&path)
+}
+
+fn reveal_file(path: &PathBuf) -> Result<(), String> {
+    if !path.exists() {
+        return Err("源文件已不存在".to_string());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg("-R")
+            .arg(path)
+            .status()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(format!("/select,{}", path.display()))
+            .status()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let directory = path.parent().unwrap_or(path.as_path());
+        std::process::Command::new("xdg-open")
+            .arg(directory)
+            .status()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("当前系统不支持打开文件位置".to_string())
+}
+
+#[tauri::command]
 async fn start_server(
     port: u16,
     state: tauri::State<'_, ServerState>,
@@ -132,6 +176,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             pick_admin_files,
             download_admin_file,
+            reveal_admin_file,
             start_server,
             stop_server,
             server_status,
