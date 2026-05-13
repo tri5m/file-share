@@ -52,6 +52,7 @@ struct AdminFileDropPayload {
 #[tauri::command]
 fn pick_admin_files() -> Result<Vec<String>, String> {
     let files = rfd::FileDialog::new()
+        .set_title("选择要共享的文件")
         .set_directory(dirs::home_dir().unwrap_or_else(std::env::temp_dir))
         .pick_files()
         .unwrap_or_default();
@@ -66,6 +67,7 @@ fn pick_admin_files() -> Result<Vec<String>, String> {
 async fn download_admin_file(id: String) -> Result<(), String> {
     let suggested_name = server::download_filename(&id).await?;
     let target = rfd::FileDialog::new()
+        .set_title("保存文件")
         .set_file_name(&suggested_name)
         .save_file();
 

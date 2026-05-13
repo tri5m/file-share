@@ -905,7 +905,6 @@
       if (action === 'delete' && state.role === 'admin') {
         try {
           await request(`/api/items/${id}`, { method: 'DELETE' });
-          showToast('已移除共享项', 'success');
         } catch (error) {
           showToast(String(error), 'error');
         }
