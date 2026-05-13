@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "fileshare"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "async-stream",
  "axum",

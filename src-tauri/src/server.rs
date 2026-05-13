@@ -6,6 +6,8 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 
 use async_stream::stream;
 use axum::{
@@ -1155,13 +1157,18 @@ fn macos_interface_display_names() -> HashMap<String, String> {
 
 #[cfg(target_os = "windows")]
 fn windows_interface_display_names() -> HashMap<String, String> {
-    let output = Command::new("powershell")
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let mut command = Command::new("powershell");
+    command
+        .creation_flags(CREATE_NO_WINDOW)
         .args([
             "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
             "-Command",
             "Get-NetAdapter | ForEach-Object { \"$($_.InterfaceDescription)`t$($_.Name)`t$($_.InterfaceAlias)\" }",
-        ])
-        .output();
+        ]);
+    let output = command.output();
     let Ok(output) = output else {
         return HashMap::new();
     };
