@@ -60,6 +60,15 @@ pub struct ServerInfo {
     pub ip: String,
     pub url: String,
     pub qr: String,
+    pub addresses: Vec<ShareAddress>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareAddress {
+    pub ip: String,
+    pub url: String,
+    pub qr: String,
 }
 
 pub struct RunningServer {
@@ -253,12 +262,10 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         .await
         .map_err(|error| error.to_string())?;
 
-    let lan_ip = local_ip_address::local_ip()
-        .ok()
-        .and_then(|ip| match ip {
-            IpAddr::V4(v4) if !v4.is_loopback() => Some(v4.to_string()),
-            _ => None,
-        })
+    let lan_ips = lan_ipv4_addresses();
+    let lan_ip = lan_ips
+        .first()
+        .cloned()
         .unwrap_or_else(|| "127.0.0.1".to_string());
 
     let mut local_addresses = HashSet::from([
@@ -271,7 +278,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         }
     }
 
-    let info = server_info(port, &lan_ip).map_err(|error| error.to_string())?;
+    let info = server_info(port, &lan_ips).map_err(|error| error.to_string())?;
     let (events_sender, _) = broadcast::channel(64);
     let (download_events_sender, _) = broadcast::channel(64);
     let state = AppState {
@@ -442,12 +449,18 @@ async fn client_info(
     ConnectInfo(address): ConnectInfo<SocketAddr>,
 ) -> AppResult<Json<serde_json::Value>> {
     require_local_addr(&state, address.ip())?;
-    let info = server_info(state.port, &state.lan_ip).map_err(AppError::internal)?;
+    let info = server_info(state.port, std::slice::from_ref(&state.lan_ip)).map_err(AppError::internal)?;
     Ok(Json(serde_json::json!(info)))
 }
 
 async fn share_info(State(state): State<AppState>) -> AppResult<Json<serde_json::Value>> {
-    let info = server_info(state.port, &state.lan_ip).map_err(AppError::internal)?;
+    let addresses = lan_ipv4_addresses();
+    let ips = if addresses.is_empty() {
+        vec![state.lan_ip.clone()]
+    } else {
+        addresses
+    };
+    let info = server_info(state.port, &ips).map_err(AppError::internal)?;
     Ok(Json(serde_json::json!(info)))
 }
 
@@ -1008,20 +1021,107 @@ fn require_local_addr(state: &AppState, address: IpAddr) -> AppResult<()> {
     Err(AppError::forbidden("管理端只能在服务器本机访问"))
 }
 
-fn server_info(port: u16, lan_ip: &str) -> Result<ServerInfo, qrcode::types::QrError> {
-    let url = format!("http://{}:{}", lan_ip, port);
+fn server_info(port: u16, lan_ips: &[String]) -> Result<ServerInfo, qrcode::types::QrError> {
+    let mut addresses = Vec::new();
+    for ip in lan_ips {
+        let url = format!("http://{}:{}", ip, port);
+        let qr = qr_svg(&url)?;
+        addresses.push(ShareAddress {
+            ip: ip.clone(),
+            url,
+            qr,
+        });
+    }
+    if addresses.is_empty() {
+        let url = format!("http://127.0.0.1:{}", port);
+        addresses.push(ShareAddress {
+            ip: "127.0.0.1".to_string(),
+            qr: qr_svg(&url)?,
+            url,
+        });
+    }
+    let primary = addresses[0].clone();
+    Ok(ServerInfo {
+        port,
+        ip: primary.ip,
+        url: primary.url,
+        qr: primary.qr,
+        addresses,
+    })
+}
+
+fn qr_svg(url: &str) -> Result<String, qrcode::types::QrError> {
     let qr = QrCode::new(url.as_bytes())?
         .render::<svg::Color>()
         .min_dimensions(128, 128)
         .dark_color(svg::Color("#303133"))
         .light_color(svg::Color("#ffffff"))
         .build();
-    Ok(ServerInfo {
-        port,
-        ip: lan_ip.to_string(),
-        url,
-        qr,
-    })
+    Ok(qr)
+}
+
+fn lan_ipv4_addresses() -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut addresses = Vec::new();
+    if let Ok(netifs) = local_ip_address::list_afinet_netifas() {
+        for (name, ip) in netifs {
+            if !is_shareable_interface(&name) {
+                continue;
+            }
+            if let IpAddr::V4(v4) = ip {
+                if is_shareable_ipv4(v4) {
+                    let value = v4.to_string();
+                    if seen.insert(value.clone()) {
+                        addresses.push(value);
+                    }
+                }
+            }
+        }
+    }
+    if addresses.is_empty() {
+        if let Ok(IpAddr::V4(v4)) = local_ip_address::local_ip() {
+            if is_shareable_ipv4(v4) {
+                addresses.push(v4.to_string());
+            }
+        }
+    }
+    addresses
+}
+
+fn is_shareable_ipv4(address: Ipv4Addr) -> bool {
+    if address.is_loopback() || address.is_link_local() || address.is_unspecified() {
+        return false;
+    }
+
+    true
+}
+
+fn is_shareable_interface(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    let excluded_prefixes = [
+        "lo", "utun", "awdl", "llw", "bridge", "gif", "stf", "p2p", "ipsec", "tap", "tun",
+    ];
+    if excluded_prefixes
+        .iter()
+        .any(|prefix| name.starts_with(prefix))
+    {
+        return false;
+    }
+
+    let excluded_keywords = [
+        "loopback",
+        "virtual",
+        "vmware",
+        "virtualbox",
+        "hyper-v",
+        "tailscale",
+        "zerotier",
+        "clash",
+        "mihomo",
+    ];
+    !excluded_keywords
+        .iter()
+        .any(|keyword| name.contains(keyword))
 }
 
 fn app_data_dir() -> Result<PathBuf, std::io::Error> {

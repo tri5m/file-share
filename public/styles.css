@@ -95,11 +95,17 @@
   box-sizing: border-box;
 }
 
-body {
-  margin: 0;
-  min-height: 100vh;
+html {
+  min-height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: clip;
   color: var(--text);
   background: var(--bg);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -111,8 +117,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  padding: 16px clamp(24px, 4vw, 48px);
+  gap: 18px;
+  padding: 10px clamp(18px, 3vw, 36px);
   color: var(--text);
   background: var(--surface);
   border-bottom: 1px solid var(--line);
@@ -136,7 +142,7 @@ p {
 }
 
 h1 {
-  font-size: 24px;
+  font-size: 21px;
   line-height: 1.2;
   font-weight: 600;
   color: var(--text);
@@ -251,8 +257,8 @@ h2 {
 
 .client-share {
   display: grid;
-  grid-template-columns: 76px minmax(0, 280px);
-  gap: 10px;
+  grid-template-columns: 74px minmax(0, 260px);
+  gap: 9px;
   align-items: center;
   max-width: 100%;
   min-width: 0;
@@ -279,9 +285,9 @@ h2 {
 .client-qr {
   display: grid;
   place-items: center;
-  width: 76px;
-  height: 76px;
-  padding: 5px;
+  width: 74px;
+  height: 74px;
+  padding: 2px;
   background: var(--surface-overlay);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -289,8 +295,8 @@ h2 {
 
 .client-qr svg {
   display: block;
-  width: 66px;
-  height: 66px;
+  width: 68px;
+  height: 68px;
 }
 
 .client-qr-button:hover .client-qr {
@@ -300,21 +306,92 @@ h2 {
 
 .client-link-box {
   display: grid;
-  gap: 8px;
+  gap: 5px;
   min-width: 0;
+}
+
+.address-picker {
+  position: relative;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  justify-self: start;
+  gap: 6px;
+  width: min(100%, 190px);
+  min-width: 0;
+  padding: 3px 8px 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, var(--surface-overlay), var(--surface-soft));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.address-picker::after {
+  content: "";
+  position: absolute;
+  right: 9px;
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid var(--text-faint);
+  border-bottom: 1.5px solid var(--text-faint);
+  pointer-events: none;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.address-picker:has(.client-address-select:focus) {
+  border-color: var(--accent-soft-border);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.address-picker span {
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.address-picker[hidden] {
+  display: none;
+}
+
+.client-address-select {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 16px 2px 0;
+  border: 0;
+  border-radius: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.25;
+  outline: none;
+}
+
+.client-address-select:focus {
+  outline: none;
 }
 
 .client-link-box span {
   overflow: hidden;
   color: var(--text-soft);
-  font-size: 13px;
+  font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .client-link-box .nav-link {
   justify-self: start;
-  font-size: 13px;
+  min-height: 0;
+  padding: 4px 9px;
+  font-size: 12px;
+  line-height: 1.2;
 }
 
 .layout {
@@ -1042,8 +1119,8 @@ pre {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
-    padding: 14px 16px;
-    gap: 12px;
+    padding: 12px 14px;
+    gap: 10px;
   }
 
   .top-actions {
@@ -1053,7 +1130,7 @@ pre {
   }
 
   .client-share {
-    grid-template-columns: 76px minmax(0, 1fr);
+    grid-template-columns: 74px minmax(0, 1fr);
     width: 100%;
   }
 

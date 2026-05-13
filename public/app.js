@@ -9,6 +9,7 @@
     isTauri: false,
     serverRunning: false,
     shareInfo: null,
+    selectedAddressUrl: '',
     statusTimer: null,
     adminFileSharing: false,
     adminDragDropBound: false,
@@ -47,10 +48,40 @@
 
   function getDownloadUrl(item) {
     const path = `/api/items/${item.id}/download`;
-    if (state.shareInfo?.url) {
-      return new URL(path, new URL(state.shareInfo.url).origin).toString();
+    const selectedUrl = state.role === 'admin' ? currentShareUrl() : window.location.origin;
+    if (selectedUrl) {
+      return new URL(path, new URL(selectedUrl).origin).toString();
     }
     return new URL(path, window.location.origin).toString();
+  }
+
+  function shareAddresses(info = state.shareInfo) {
+    if (!info) return [];
+    const addresses = Array.isArray(info.addresses) ? info.addresses : [];
+    if (addresses.length) return addresses;
+    return info.url ? [{ ip: info.ip || new URL(info.url).hostname, url: info.url, qr: info.qr }] : [];
+  }
+
+  function currentShareAddress() {
+    const addresses = shareAddresses();
+    if (!addresses.length) return null;
+    return addresses.find((item) => item.url === state.selectedAddressUrl) || addresses[0];
+  }
+
+  function currentShareUrl() {
+    return currentShareAddress()?.url || state.shareInfo?.url || '';
+  }
+
+  function clientShareAddress() {
+    const currentUrl = window.location.origin;
+    const match = shareAddresses().find((item) => {
+      try {
+        return new URL(item.url).origin === currentUrl;
+      } catch (_) {
+        return false;
+      }
+    });
+    return { url: currentUrl, qr: match?.qr || state.shareInfo?.qr };
   }
 
   async function request(url, options = {}) {
@@ -185,19 +216,51 @@
     const qr = $('clientQr');
     const text = $('clientUrlText');
     const copy = $('copyClientUrl');
-    if (qr) {
-      qr.innerHTML = info.qr;
+    const select = $('clientAddressSelect');
+    const addressPicker = select?.closest('.address-picker');
+    const addresses = shareAddresses(info);
+    if (state.role === 'admin' && select) {
+      const previousUrl = state.selectedAddressUrl;
+      const selected = addresses.find((item) => item.url === previousUrl)
+        || addresses[0]
+        || null;
+      state.selectedAddressUrl = selected?.url || '';
+      select.innerHTML = addresses.map((item) => {
+        const label = item.ip || new URL(item.url).hostname;
+        return `<option value="${escapeHtml(item.url)}"${item.url === state.selectedAddressUrl ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+      }).join('');
+      if (addressPicker) addressPicker.hidden = addresses.length <= 1;
+      select.onchange = () => {
+        state.selectedAddressUrl = select.value;
+        renderShareAddress();
+        render();
+      };
+    } else {
+      state.selectedAddressUrl = '';
     }
-    if (text) {
-      text.textContent = info.url;
-      text.title = info.url;
-    }
+    renderShareAddress();
     if (copy) {
       copy.onclick = async () => {
-        const copied = await copyText(info.url);
+        const copied = await copyText(state.role === 'admin' ? currentShareUrl() : window.location.origin);
         copy.textContent = copied ? '已复制' : '复制失败';
         setTimeout(() => { copy.textContent = '复制链接'; }, 1200);
       };
+    }
+  }
+
+  function renderShareAddress() {
+    const address = state.role === 'admin'
+      ? currentShareAddress()
+      : clientShareAddress();
+    const qr = $('clientQr');
+    const text = $('clientUrlText');
+    if (!address) return;
+    if (qr) {
+      qr.innerHTML = address.qr;
+    }
+    if (text) {
+      text.textContent = address.url;
+      text.title = address.url;
     }
   }
 
@@ -219,8 +282,15 @@
     document.body.classList.add('server-stopped');
     $('clientQr') && ($('clientQr').innerHTML = '');
     $('clientUrlText') && ($('clientUrlText').textContent = '服务未启动');
+    const select = $('clientAddressSelect');
+    if (select) {
+      select.innerHTML = '';
+      const addressPicker = select.closest('.address-picker');
+      if (addressPicker) addressPicker.hidden = true;
+    }
     $('status') && ($('status').textContent = '未启动');
     state.shareInfo = null;
+    state.selectedAddressUrl = '';
     setServerControlsStopped();
   }
 
@@ -543,16 +613,20 @@
     if (!button || !dialog || !preview || !urlText || !copyButton) return;
 
     button.addEventListener('click', () => {
-      if (!state.shareInfo?.qr) return;
-      preview.innerHTML = state.shareInfo.qr;
-      urlText.textContent = state.shareInfo.url;
-      urlText.title = state.shareInfo.url;
+      const address = state.role === 'admin'
+        ? currentShareAddress()
+        : clientShareAddress();
+      if (!address?.qr) return;
+      preview.innerHTML = address.qr;
+      urlText.textContent = address.url;
+      urlText.title = address.url;
       dialog.showModal();
     });
 
     copyButton.addEventListener('click', async () => {
-      if (!state.shareInfo?.url) return;
-      const copied = await copyText(state.shareInfo.url);
+      const url = state.role === 'admin' ? currentShareUrl() : window.location.origin;
+      if (!url) return;
+      const copied = await copyText(url);
       copyButton.textContent = copied ? '已复制' : '复制失败';
       setTimeout(() => { copyButton.textContent = '复制链接'; }, 1200);
     });
