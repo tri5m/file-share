@@ -2,6 +2,8 @@
   "name": "fileshare",
   "version": "1.0.6",
   "private": true,
+  "license": "MIT",
+  "author": "Trifolium Wang <trifolium.wang@gmail.com>",
   "type": "module",
   "scripts": {
     "dev": "tauri dev",

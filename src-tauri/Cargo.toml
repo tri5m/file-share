@@ -2,7 +2,8 @@
 name = "fileshare"
 version = "1.0.6"
 description = "LAN file sharing desktop app"
-authors = ["FileShare"]
+authors = ["Trifolium Wang <trifolium.wang@gmail.com>"]
+license = "MIT"
 edition = "2021"
 
 [build-dependencies]

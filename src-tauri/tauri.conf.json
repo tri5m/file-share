@@ -37,7 +37,7 @@
     "category": "Productivity",
     "shortDescription": "LAN file sharing",
     "longDescription": "A lightweight LAN file sharing app with client and admin pages.",
-    "copyright": "Open Source: https://github.com/tri5m/file-share",
+    "copyright": "Copyright (c) 2026 Trifolium Wang",
     "publisher": "Trifolium Wang",
     "windows": {
       "wix": {
