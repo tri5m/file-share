@@ -103,3 +103,12 @@ GitHub Actions 发布前，需要在仓库 Settings -> Secrets and variables -> 
 构建完成后，产物会上传到对应的 GitHub Release。
 
 已安装的桌面应用可以通过系统托盘菜单里的“检查更新”获取新版本。Windows 系统托盘菜单还提供“关于”弹窗，展示版本、作者和项目地址。局域网 Web 客户端不需要单独更新，刷新页面即可使用当前桌面应用内置的新客户端页面。
+
+
+
+#### 推广
+
+* QQ群: 1079340875
+* 感谢Linux DO 对本项目的推广支持:[LINUX DO](https://linux.do/)
+* Telegram: https://t.me/+ADX7BKc3QFIxMjk0
+* Email: ft93923@gmail.com
