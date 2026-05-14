@@ -12,7 +12,7 @@ use axum::{
     extract::{connect_info::ConnectInfo, DefaultBodyLimit, Multipart, Path as AxumPath, State},
     http::{
         header::{
-            ACCEPT_RANGES, CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
+            ACCEPT_RANGES, CONTENT_DISPOSITION, CONTENT_LENGTH, CONTENT_RANGE,
             CONTENT_TYPE, RANGE,
         },
         HeaderMap, HeaderValue, StatusCode,
@@ -32,15 +32,9 @@ use tokio::{
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
+use crate::assets;
 use crate::localization::tr;
 use crate::network::{lan_ipv4_addresses, LanAddress};
-
-const CLIENT_HTML: &str = include_str!("../../public/client.html");
-const APP_JS: &str = include_str!("../../public/app.js");
-const APP_CORE_JS: &str = include_str!("../../public/app-core.js");
-const APP_UTILS_JS: &str = include_str!("../../public/app-utils.js");
-const I18N_JS: &str = include_str!("../../public/i18n.js");
-const STYLES_CSS: &str = include_str!("../../public/styles.css");
 const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024 * 1024;
 const DOWNLOAD_BUFFER_BYTES: usize = 1024 * 1024;
 
@@ -317,13 +311,13 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
     });
 
     let app = Router::new()
-        .route("/", get(client_html))
-        .route("/client.html", get(client_html))
-        .route("/app.js", get(app_js))
-        .route("/app-core.js", get(app_core_js))
-        .route("/app-utils.js", get(app_utils_js))
-        .route("/i18n.js", get(i18n_js))
-        .route("/styles.css", get(styles_css))
+        .route("/", get(assets::client_html))
+        .route("/client.html", get(assets::client_html))
+        .route("/app.js", get(assets::app_js))
+        .route("/app-core.js", get(assets::app_core_js))
+        .route("/app-utils.js", get(assets::app_utils_js))
+        .route("/i18n.js", get(assets::i18n_js))
+        .route("/styles.css", get(assets::styles_css))
         .route("/api/items", get(items))
         .route("/api/share-info", get(share_info))
         .route("/api/client-info", get(client_info))
@@ -436,30 +430,6 @@ pub async fn copy_item_to_path(id: &str, target_path: &Path) -> Result<(), Strin
 
 pub async fn item_file_path(id: &str) -> Result<PathBuf, String> {
     item_storage_path(id).await
-}
-
-async fn client_html() -> impl IntoResponse {
-    html(CLIENT_HTML)
-}
-
-async fn app_js() -> impl IntoResponse {
-    with_type(APP_JS, "text/javascript; charset=utf-8")
-}
-
-async fn app_core_js() -> impl IntoResponse {
-    with_type(APP_CORE_JS, "text/javascript; charset=utf-8")
-}
-
-async fn app_utils_js() -> impl IntoResponse {
-    with_type(APP_UTILS_JS, "text/javascript; charset=utf-8")
-}
-
-async fn i18n_js() -> impl IntoResponse {
-    with_type(I18N_JS, "text/javascript; charset=utf-8")
-}
-
-async fn styles_css() -> impl IntoResponse {
-    with_type(STYLES_CSS, "text/css; charset=utf-8")
 }
 
 async fn items(State(state): State<AppState>) -> AppResult<Json<Vec<PublicItem>>> {
@@ -1121,21 +1091,6 @@ async fn next_available_path(dir: &Path, filename: &str) -> Result<PathBuf, std:
         index += 1;
     }
     Ok(candidate)
-}
-
-fn html(body: &'static str) -> Response {
-    with_type(body, "text/html; charset=utf-8")
-}
-
-fn with_type(body: &'static str, content_type: &'static str) -> Response {
-    let mut response = body.into_response();
-    let headers = response.headers_mut();
-    headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
-    headers.insert(
-        CACHE_CONTROL,
-        HeaderValue::from_static("no-store, no-cache, must-revalidate"),
-    );
-    response
 }
 
 fn safe_name(value: &str) -> String {
