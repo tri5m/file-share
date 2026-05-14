@@ -2,12 +2,9 @@ use std::{
     collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr, SocketAddr},
     path::{Path, PathBuf},
-    process::Command,
     sync::Arc,
     time::{Duration, Instant},
 };
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
 
 use async_stream::stream;
 use axum::{
@@ -35,8 +32,14 @@ use tokio::{
 use tower_http::cors::CorsLayer;
 use uuid::Uuid;
 
+use crate::localization::tr;
+use crate::network::{lan_ipv4_addresses, LanAddress};
+
 const CLIENT_HTML: &str = include_str!("../../public/client.html");
 const APP_JS: &str = include_str!("../../public/app.js");
+const APP_CORE_JS: &str = include_str!("../../public/app-core.js");
+const APP_UTILS_JS: &str = include_str!("../../public/app-utils.js");
+const I18N_JS: &str = include_str!("../../public/i18n.js");
 const STYLES_CSS: &str = include_str!("../../public/styles.css");
 const MAX_UPLOAD_BYTES: usize = 10 * 1024 * 1024 * 1024;
 const DOWNLOAD_BUFFER_BYTES: usize = 1024 * 1024;
@@ -216,7 +219,7 @@ impl AppError {
         );
         Self {
             status: StatusCode::RANGE_NOT_SATISFIABLE,
-            message: format!("请求范围无效，文件大小为 {file_size} 字节"),
+            message: tr("range_invalid", &[("file_size", file_size.to_string())]),
             headers,
         }
     }
@@ -317,6 +320,9 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         .route("/", get(client_html))
         .route("/client.html", get(client_html))
         .route("/app.js", get(app_js))
+        .route("/app-core.js", get(app_core_js))
+        .route("/app-utils.js", get(app_utils_js))
+        .route("/i18n.js", get(i18n_js))
         .route("/styles.css", get(styles_css))
         .route("/api/items", get(items))
         .route("/api/share-info", get(share_info))
@@ -385,14 +391,14 @@ pub async fn stop() -> Result<(), String> {
 
 pub async fn add_admin_local_files(paths: Vec<PathBuf>) -> Result<usize, String> {
     let Some(handle) = SERVER_HANDLE.get() else {
-        return Err("服务未启动".to_string());
+        return Err(tr("server_not_started", &[]));
     };
     let state = {
         let guard = handle.lock().await;
         guard
             .as_ref()
             .map(|running| running.state.clone())
-            .ok_or_else(|| "服务未启动".to_string())?
+            .ok_or_else(|| tr("server_not_started", &[]))?
     };
 
     add_local_file_paths(&state, paths)
@@ -438,6 +444,18 @@ async fn client_html() -> impl IntoResponse {
 
 async fn app_js() -> impl IntoResponse {
     with_type(APP_JS, "text/javascript; charset=utf-8")
+}
+
+async fn app_core_js() -> impl IntoResponse {
+    with_type(APP_CORE_JS, "text/javascript; charset=utf-8")
+}
+
+async fn app_utils_js() -> impl IntoResponse {
+    with_type(APP_UTILS_JS, "text/javascript; charset=utf-8")
+}
+
+async fn i18n_js() -> impl IntoResponse {
+    with_type(I18N_JS, "text/javascript; charset=utf-8")
 }
 
 async fn styles_css() -> impl IntoResponse {
@@ -529,7 +547,7 @@ async fn add_text(
     }
     let content = payload.content.trim().to_string();
     if content.is_empty() {
-        return Err(AppError::bad_request("文本不能为空"));
+        return Err(AppError::bad_request(tr("empty_text", &[])));
     }
 
     let item = Item {
@@ -605,10 +623,10 @@ async fn upload(
         for item in &items {
             let _ = fs::remove_file(&item.storage_path).await;
         }
-        return Err(AppError::bad_request("管理端共享文件请使用系统文件选择器"));
+        return Err(AppError::bad_request(tr("admin_picker_required", &[])));
     }
     if items.is_empty() {
-        return Err(AppError::bad_request("请选择文件"));
+        return Err(AppError::bad_request(tr("please_select_file", &[])));
     }
 
     Ok(Json(add_items(&state, items).await?))
@@ -629,16 +647,16 @@ async fn add_local_file_paths(
     paths: Vec<PathBuf>,
 ) -> AppResult<Vec<PublicItem>> {
     if paths.is_empty() {
-        return Err(AppError::bad_request("请选择文件"));
+        return Err(AppError::bad_request(tr("please_select_file", &[])));
     }
 
     let mut items = Vec::new();
     for path in paths {
         let metadata = fs::metadata(&path)
             .await
-            .map_err(|_| AppError::bad_request("所选文件不存在"))?;
+            .map_err(|_| AppError::bad_request(tr("selected_file_missing", &[])))?;
         if !metadata.is_file() {
-            return Err(AppError::bad_request("只能共享文件"));
+            return Err(AppError::bad_request(tr("only_file", &[])));
         }
         let title = path
             .file_name()
@@ -673,16 +691,16 @@ async fn download(
     let item = items
         .into_iter()
         .find(|entry| entry.id == id)
-        .ok_or_else(|| AppError::not_found("条目不存在"))?;
+        .ok_or_else(|| AppError::not_found(tr("item_missing", &[])))?;
 
     if item.kind == "text" {
-        return Err(AppError::bad_request("文本无需下载"));
+        return Err(AppError::bad_request(tr("text_no_download", &[])));
     }
 
     let path = PathBuf::from(&item.storage_path);
     let mut file = File::open(&path)
         .await
-        .map_err(|_| AppError::not_found("源文件不存在"))?;
+        .map_err(|_| AppError::not_found(tr("source_missing", &[])))?;
     let metadata = file.metadata().await?;
     let file_size = metadata.len();
     let fallback_name = ascii_fallback_name(&item.title);
@@ -791,7 +809,7 @@ async fn remove(
     let before = items.len();
     items.retain(|entry| entry.id != id);
     if items.len() == before {
-        return Err(AppError::not_found("条目不存在"));
+        return Err(AppError::not_found(tr("item_missing", &[])));
     }
     write_items_unlocked(&state, &items).await?;
     state.events.send(public_items(&items))?;
@@ -933,10 +951,10 @@ async fn item_storage_path(id: &str) -> Result<PathBuf, String> {
     let item = items
         .into_iter()
         .find(|entry| entry.id == id)
-        .ok_or_else(|| "条目不存在".to_string())?;
+        .ok_or_else(|| tr("item_missing", &[]))?;
 
     if item.kind == "text" {
-        return Err("文本无需下载".to_string());
+        return Err(tr("text_no_download", &[]));
     }
 
     let path = PathBuf::from(item.storage_path);
@@ -944,7 +962,7 @@ async fn item_storage_path(id: &str) -> Result<PathBuf, String> {
         .await
         .map_err(|error| error.to_string())?;
     if !exists {
-        return Err("源文件不存在".to_string());
+        return Err(tr("source_missing", &[]));
     }
 
     Ok(path)
@@ -1032,13 +1050,7 @@ fn require_local_addr(state: &AppState, address: IpAddr) -> AppResult<()> {
         return Ok(());
     }
 
-    Err(AppError::forbidden("管理端只能在服务器本机访问"))
-}
-
-#[derive(Debug, Clone)]
-struct LanAddress {
-    name: Option<String>,
-    ip: String,
+    Err(AppError::forbidden(tr("forbidden", &[])))
 }
 
 fn server_info(port: u16, lan_addresses: &[LanAddress]) -> Result<ServerInfo, qrcode::types::QrError> {
@@ -1080,152 +1092,6 @@ fn qr_svg(url: &str) -> Result<String, qrcode::types::QrError> {
         .light_color(svg::Color("#ffffff"))
         .build();
     Ok(qr)
-}
-
-fn lan_ipv4_addresses() -> Vec<LanAddress> {
-    let mut seen = HashSet::new();
-    let mut addresses = Vec::new();
-    let names = interface_display_names();
-    if let Ok(netifs) = local_ip_address::list_afinet_netifas() {
-        for (name, ip) in netifs {
-            if !is_shareable_interface(&name) {
-                continue;
-            }
-            if let IpAddr::V4(v4) = ip {
-                if is_shareable_ipv4(v4) {
-                    let value = v4.to_string();
-                    if seen.insert(value.clone()) {
-                        addresses.push(LanAddress {
-                            name: names.get(&name).cloned().or_else(|| Some(name)),
-                            ip: value,
-                        });
-                    }
-                }
-            }
-        }
-    }
-    if addresses.is_empty() {
-        if let Ok(IpAddr::V4(v4)) = local_ip_address::local_ip() {
-            if is_shareable_ipv4(v4) {
-                addresses.push(LanAddress {
-                    name: None,
-                    ip: v4.to_string(),
-                });
-            }
-        }
-    }
-    addresses
-}
-
-fn interface_display_names() -> HashMap<String, String> {
-    #[cfg(target_os = "macos")]
-    {
-        macos_interface_display_names()
-    }
-    #[cfg(target_os = "windows")]
-    {
-        windows_interface_display_names()
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-    {
-        HashMap::new()
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn macos_interface_display_names() -> HashMap<String, String> {
-    let output = Command::new("networksetup")
-        .arg("-listallhardwareports")
-        .output();
-    let Ok(output) = output else {
-        return HashMap::new();
-    };
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut names = HashMap::new();
-    let mut current_name: Option<String> = None;
-    for line in text.lines() {
-        if let Some(name) = line.strip_prefix("Hardware Port: ") {
-            current_name = Some(name.trim().to_string());
-        } else if let Some(device) = line.strip_prefix("Device: ") {
-            if let Some(name) = current_name.take() {
-                names.insert(device.trim().to_string(), name);
-            }
-        }
-    }
-    names
-}
-
-#[cfg(target_os = "windows")]
-fn windows_interface_display_names() -> HashMap<String, String> {
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    let mut command = Command::new("powershell");
-    command
-        .creation_flags(CREATE_NO_WINDOW)
-        .args([
-            "-NoProfile",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            "Get-NetAdapter | ForEach-Object { \"$($_.InterfaceDescription)`t$($_.Name)`t$($_.InterfaceAlias)\" }",
-        ]);
-    let output = command.output();
-    let Ok(output) = output else {
-        return HashMap::new();
-    };
-    let mut names = HashMap::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let mut parts = line.split('\t');
-        let description = parts.next().unwrap_or_default().trim();
-        let name = parts.next().unwrap_or_default().trim();
-        let alias = parts.next().unwrap_or_default().trim();
-        let display = if alias.is_empty() { name } else { alias };
-        if display.is_empty() {
-            continue;
-        }
-        if !description.is_empty() {
-            names.insert(description.to_string(), display.to_string());
-        }
-        if !name.is_empty() {
-            names.insert(name.to_string(), display.to_string());
-        }
-    }
-    names
-}
-
-fn is_shareable_ipv4(address: Ipv4Addr) -> bool {
-    if address.is_loopback() || address.is_link_local() || address.is_unspecified() {
-        return false;
-    }
-
-    true
-}
-
-fn is_shareable_interface(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    let excluded_prefixes = [
-        "lo", "utun", "awdl", "llw", "bridge", "gif", "stf", "p2p", "ipsec", "tap", "tun",
-    ];
-    if excluded_prefixes
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
-    {
-        return false;
-    }
-
-    let excluded_keywords = [
-        "loopback",
-        "virtual",
-        "vmware",
-        "virtualbox",
-        "hyper-v",
-        "tailscale",
-        "zerotier",
-        "clash",
-        "mihomo",
-    ];
-    !excluded_keywords
-        .iter()
-        .any(|keyword| name.contains(keyword))
 }
 
 fn app_data_dir() -> Result<PathBuf, std::io::Error> {
@@ -1317,7 +1183,7 @@ fn text_title(content: &str) -> String {
     let compact = content.split_whitespace().collect::<Vec<_>>().join(" ");
     let title: String = compact.chars().take(40).collect();
     if title.is_empty() {
-        "文本片段".to_string()
+        tr("text_snippet", &[])
     } else {
         title
     }
@@ -1325,9 +1191,12 @@ fn text_title(content: &str) -> String {
 
 fn bind_error_message(port: u16, error: std::io::Error) -> String {
     if error.kind() == std::io::ErrorKind::AddrInUse {
-        format!("端口 {port} 已被占用，请换一个端口或关闭占用该端口的程序")
+        tr("port_taken", &[("port", port.to_string())])
     } else {
-        format!("端口 {port} 启动失败：{error}")
+        tr(
+            "port_failed",
+            &[("port", port.to_string()), ("error", error.to_string())],
+        )
     }
 }
 

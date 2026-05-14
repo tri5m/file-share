@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>FileShare</title>
     <link rel="stylesheet" href="/styles.css">
+    <script src="/i18n.js"></script>
   </head>
-  <body>
+  <body data-app-role="admin">
     <header class="topbar admin">
       <div>
         <h1>FileShare</h1>
@@ -14,26 +15,26 @@
       <div class="top-actions">
         <div class="usage-tips">
           <details>
-            <summary>使用说明</summary>
+            <summary data-i18n="usageTitle">使用说明</summary>
             <div class="tips-content">
-              <p>1. 启动服务后，扫描二维码或复制链接</p>
-              <p>2. 在局域网内的其他设备打开链接</p>
-              <p>3. 发布文本或共享文件即可分享</p>
-              <p>4. 客户端可下载或复制共享内容</p>
+              <p data-i18n="usage1">1. 启动服务后，扫描二维码或复制链接</p>
+              <p data-i18n="usage2">2. 在局域网内的其他设备打开链接</p>
+              <p data-i18n="usage3">3. 发布文本或共享文件即可分享</p>
+              <p data-i18n="usage4">4. 客户端可下载或复制共享内容</p>
             </div>
           </details>
-          <p class="tips-note">指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
+          <p class="tips-note" data-i18n="usageNote">指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
         </div>
         <div class="client-share">
-          <button id="clientQrButton" class="client-qr-button" type="button" aria-label="放大查看二维码">
+          <button id="clientQrButton" class="client-qr-button" type="button" aria-label="放大查看二维码" data-i18n-aria-label="qrPreview">
             <div id="clientQr" class="client-qr"></div>
           </button>
           <div class="client-link-box">
             <label class="address-picker">
-              <select id="clientAddressSelect" class="client-address-select" aria-label="选择访问地址"></select>
+              <select id="clientAddressSelect" class="client-address-select" aria-label="选择访问地址" data-i18n-aria-label="chooseAddress"></select>
             </label>
-            <span id="clientUrlText">加载客户端链接</span>
-            <button id="copyClientUrl" class="nav-link" type="button">复制链接</button>
+            <span id="clientUrlText" data-i18n="loadingClientLink">加载客户端链接</span>
+            <button id="copyClientUrl" class="nav-link" type="button" data-i18n="copyLink">复制链接</button>
           </div>
         </div>
       </div>
@@ -44,26 +45,26 @@
         <div class="server-copy">
           <div id="dropZone" class="upload-drop upload-drop-static admin-file-drop">
             <span class="upload-icon">↑</span>
-            <strong>拖动文件到此处或点击此处分享文件</strong>
-            <small id="fileHint" class="admin-file-hint">文件会以本机路径方式共享，不会复制到应用目录</small>
+            <strong data-i18n="shareDropTitle">拖动文件到此处或点击此处分享文件</strong>
+            <small id="fileHint" class="admin-file-hint" data-i18n="shareDropHint">文件会以本机路径方式共享，不会复制到应用目录</small>
           </div>
         </div>
         <form id="serverForm" class="server-form">
-          <button id="startServerButton" type="submit">启动分享</button>
+          <button id="startServerButton" type="submit" data-i18n="startShare">启动分享</button>
         </form>
         <div class="port-input-group">
-          <label for="serverPort">端口号</label>
+          <label for="serverPort" data-i18n="port">端口号</label>
           <input id="serverPort" type="number" min="1024" max="65535" value="5421" placeholder="5421">
         </div>
       </section>
 
       <section class="panel list-panel">
         <div class="section-head">
-          <h2>共享列表</h2>
+          <h2 data-i18n="sharedList">共享列表</h2>
           <div class="list-actions">
-            <span id="status">连接中</span>
-            <button class="header-button text-action" data-open="textDialog">📝 发布文本</button>
-            <button class="header-button file-action" data-open="fileDialog">📁 共享文件</button>
+            <span id="status" data-i18n="connecting">连接中</span>
+            <button class="header-button text-action" data-open="textDialog" data-i18n="publishText">📝 发布文本</button>
+            <button class="header-button file-action" data-open="fileDialog" data-i18n="shareFile">📁 共享文件</button>
           </div>
         </div>
         <div id="items" class="items"></div>
@@ -71,21 +72,21 @@
     </main>
 
     <footer class="admin-footer">
-      <span>QQ群：1079340875</span>
-      <span>Email：<a href="mailto:ft93923@gmail.com">ft93923@gmail.com</a></span>
+      <span data-i18n="qqGroup">QQ群：1079340875</span>
+      <span><span data-i18n="emailLabel">Email：</span><a href="mailto:ft93923@gmail.com">ft93923@gmail.com</a></span>
     </footer>
 
     <dialog id="textDialog" class="modal" data-focus="#textContent">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">
-          <h2>发布文本</h2>
-          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+          <h2 data-i18n="publishTextTitle">发布文本</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
         </div>
       </form>
       <div class="modal-body">
         <form id="textForm" class="stack">
-          <textarea id="textContent" name="content" placeholder="输入要共享的文本"></textarea>
-          <button type="submit">发布文本</button>
+          <textarea id="textContent" name="content" placeholder="输入要共享的文本" data-i18n-placeholder="textPlaceholder"></textarea>
+          <button type="submit" data-i18n="publishTextSubmit">发布文本</button>
         </form>
       </div>
     </dialog>
@@ -93,18 +94,18 @@
     <dialog id="fileDialog" class="modal">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">
-          <h2>共享文件</h2>
-          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+          <h2 data-i18n="shareFileTitle">共享文件</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
         </div>
       </form>
       <div class="modal-body">
         <form id="fileForm" class="stack">
           <div class="upload-drop upload-drop-static admin-file-drop">
             <span class="upload-icon">↑</span>
-            <strong>拖动文件到此处或点击此处分享文件</strong>
-            <small class="admin-file-hint">文件会以本机路径方式共享，不会复制到应用目录</small>
+            <strong data-i18n="shareDropTitle">拖动文件到此处或点击此处分享文件</strong>
+            <small class="admin-file-hint" data-i18n="shareDropHint">文件会以本机路径方式共享，不会复制到应用目录</small>
           </div>
-          <button id="pickAdminFilesButton" type="button">选择并共享文件</button>
+          <button id="pickAdminFilesButton" type="button" data-i18n="pickAndShare">选择并共享文件</button>
         </form>
       </div>
     </dialog>
@@ -112,22 +113,21 @@
     <dialog id="qrDialog" class="modal qr-modal">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">
-          <h2>二维码</h2>
-          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+          <h2 data-i18n="qrCode">二维码</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
         </div>
       </form>
       <div class="modal-body qr-modal-body">
         <div id="qrDialogPreview" class="qr-dialog-preview"></div>
         <div class="client-link-box qr-dialog-link">
           <span id="qrDialogUrlText"></span>
-          <button id="qrDialogCopyButton" class="nav-link" type="button">复制链接</button>
+          <button id="qrDialogCopyButton" class="nav-link" type="button" data-i18n="copyLink">复制链接</button>
         </div>
       </div>
     </dialog>
 
+    <script src="/app-utils.js"></script>
+    <script src="/app-core.js"></script>
     <script src="/app.js"></script>
-    <script>
-      window.FileShareApp.init({ role: 'admin' });
-    </script>
   </body>
 </html>

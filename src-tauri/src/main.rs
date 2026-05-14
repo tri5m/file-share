@@ -1,7 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod localization;
+mod network;
 mod server;
 
+use localization::tr;
 use serde::Serialize;
 use std::{path::PathBuf, sync::Mutex, time::Duration};
 use tauri::{
@@ -52,7 +55,7 @@ struct AdminFileDropPayload {
 #[tauri::command]
 fn pick_admin_files() -> Result<Vec<String>, String> {
     let files = rfd::FileDialog::new()
-        .set_title("选择要共享的文件")
+        .set_title(tr("pick_admin_files", &[]))
         .set_directory(dirs::home_dir().unwrap_or_else(std::env::temp_dir))
         .pick_files()
         .unwrap_or_default();
@@ -67,7 +70,7 @@ fn pick_admin_files() -> Result<Vec<String>, String> {
 async fn download_admin_file(id: String) -> Result<(), String> {
     let suggested_name = server::download_filename(&id).await?;
     let target = rfd::FileDialog::new()
-        .set_title("保存文件")
+        .set_title(tr("save_file", &[]))
         .set_file_name(&suggested_name)
         .save_file();
 
@@ -86,7 +89,7 @@ async fn reveal_admin_file(id: String) -> Result<(), String> {
 
 fn reveal_file(path: &PathBuf) -> Result<(), String> {
     if !path.exists() {
-        return Err("源文件已不存在".to_string());
+        return Err(tr("source_missing", &[]));
     }
 
     #[cfg(target_os = "macos")]
@@ -119,7 +122,7 @@ fn reveal_file(path: &PathBuf) -> Result<(), String> {
     }
 
     #[allow(unreachable_code)]
-    Err("当前系统不支持打开文件位置".to_string())
+    Err(tr("not_supported", &[]))
 }
 
 #[tauri::command]
@@ -168,7 +171,7 @@ fn has_update_available(state: tauri::State<'_, ServerState>) -> Result<bool, St
 #[tauri::command]
 fn set_preferred_port(port: u16, state: tauri::State<'_, ServerState>) -> Result<(), String> {
     if port == 0 {
-        return Err("端口号无效".to_string());
+        return Err(tr("invalid_port", &[]));
     }
 
     *state
@@ -259,10 +262,20 @@ fn main() {
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
-    let toggle_share =
-        MenuItem::with_id(app, TRAY_TOGGLE_SHARE_ID, "启动分享", true, None::<&str>)?;
-    let check_update =
-        MenuItem::with_id(app, TRAY_CHECK_UPDATE_ID, "检查更新", true, None::<&str>)?;
+    let toggle_share = MenuItem::with_id(
+        app,
+        TRAY_TOGGLE_SHARE_ID,
+        tr("start_share", &[]),
+        true,
+        None::<&str>,
+    )?;
+    let check_update = MenuItem::with_id(
+        app,
+        TRAY_CHECK_UPDATE_ID,
+        tr("check_update", &[]),
+        true,
+        None::<&str>,
+    )?;
     #[cfg(target_os = "windows")]
     let about = MenuItem::with_id(app, TRAY_ABOUT_ID, "关于", true, None::<&str>)?;
     let show = MenuItem::with_id(app, TRAY_SHOW_ID, "显示窗口", true, None::<&str>)?;
@@ -303,8 +316,8 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
                     if let Err(error) = check_for_updates_inner(app.clone()).await {
                         show_message(
                             rfd::MessageLevel::Error,
-                            "更新失败",
-                            &format!("检查更新失败：{error}"),
+                            &tr("update_failed", &[]),
+                            &format!("{}: {error}", tr("update_failed", &[])),
                         );
                     }
                     set_tray_update_checking(&app, false);
@@ -499,7 +512,7 @@ async fn stop_share_from_tray(app: AppHandle) -> Result<(), String> {
 
 async fn start_server_inner(port: u16, state: &ServerState) -> Result<server::ServerInfo, String> {
     if port == 0 {
-        return Err("端口号无效".to_string());
+        return Err(tr("invalid_port", &[]));
     }
 
     *state
@@ -541,9 +554,9 @@ fn set_tray_share_running(app: &AppHandle, running: bool) {
 
     if let Some((toggle_share, tray)) = items {
         let _ = toggle_share.set_text(if running {
-            "停止分享"
+            tr("stop_share", &[])
         } else {
-            "启动分享"
+            tr("start_share", &[])
         });
         #[cfg(target_os = "macos")]
         let icon = if running { tray_icon() } else { inactive_tray_icon() };
@@ -616,7 +629,11 @@ async fn check_for_updates_inner(app: AppHandle) -> Result<(), String> {
                 *available = false;
             }
         }
-        show_message(rfd::MessageLevel::Info, "检查更新", "当前已经是最新版本。");
+        show_message(
+            rfd::MessageLevel::Info,
+            &tr("check_update", &[]),
+            &tr("latest_version", &[]),
+        );
         return Ok(());
     };
 
@@ -642,7 +659,7 @@ async fn check_for_updates_inner(app: AppHandle) -> Result<(), String> {
 
     let result = rfd::MessageDialog::new()
         .set_level(rfd::MessageLevel::Info)
-        .set_title("发现新版本")
+        .set_title(tr("new_version", &[]))
         .set_description(&message)
         .set_buttons(rfd::MessageButtons::OkCancel)
         .show();
@@ -688,9 +705,9 @@ fn set_tray_update_checking(app: &AppHandle, checking: bool) {
     if let Some(check_update) = check_update {
         let _ = check_update.set_enabled(!checking);
         let _ = check_update.set_text(if checking {
-            "检查中..."
+            tr("checking", &[])
         } else {
-            "检查更新"
+            tr("check_update", &[])
         });
     }
 }
@@ -698,11 +715,9 @@ fn set_tray_update_checking(app: &AppHandle, checking: bool) {
 #[cfg(target_os = "windows")]
 fn show_about_dialog(app: &AppHandle) {
     let version = app.package_info().version.to_string();
-    let description = format!(
-        "FileShare {version}\n局域网文件共享工具\n\n作者: Trifolium Wang\nGitHub: https://github.com/tri5m/file-share"
-    );
+    let description = tr("about_desc", &[("version", version)]);
 
-    show_message(rfd::MessageLevel::Info, "关于 FileShare", &description);
+    show_message(rfd::MessageLevel::Info, &tr("about_title", &[]), &description);
 }
 
 fn show_message(level: rfd::MessageLevel, title: &str, description: &str) {

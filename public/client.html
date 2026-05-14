@@ -5,20 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>FileShare</title>
     <link rel="stylesheet" href="/styles.css">
+    <script src="/i18n.js"></script>
   </head>
-  <body>
+  <body data-app-role="client">
     <header class="topbar">
       <div>
         <h1>FileShare</h1>
       </div>
       <div class="top-actions">
         <div class="client-share">
-          <button id="clientQrButton" class="client-qr-button" type="button" aria-label="放大查看二维码">
+          <button id="clientQrButton" class="client-qr-button" type="button" aria-label="放大查看二维码" data-i18n-aria-label="qrPreview">
             <div id="clientQr" class="client-qr"></div>
           </button>
           <div class="client-link-box">
-            <span id="clientUrlText">加载访问链接</span>
-            <button id="copyClientUrl" class="nav-link" type="button">复制链接</button>
+            <span id="clientUrlText" data-i18n="loadingAccessLink">加载访问链接</span>
+            <button id="copyClientUrl" class="nav-link" type="button" data-i18n="copyLink">复制链接</button>
           </div>
         </div>
       </div>
@@ -27,11 +28,11 @@
     <main class="layout single">
       <section class="panel list-panel">
         <div class="section-head">
-          <h2>共享列表</h2>
+          <h2 data-i18n="sharedList">共享列表</h2>
           <div class="list-actions">
-            <span id="status">连接中</span>
-            <button class="header-button text-action" data-open="textDialog">📝 上传文本</button>
-            <button class="header-button file-action" data-open="fileDialog">📁 上传文件</button>
+            <span id="status" data-i18n="connecting">连接中</span>
+            <button class="header-button text-action" data-open="textDialog" data-i18n="uploadTextAction">📝 上传文本</button>
+            <button class="header-button file-action" data-open="fileDialog" data-i18n="uploadFileAction">📁 上传文件</button>
           </div>
         </div>
         <div id="items" class="items"></div>
@@ -41,14 +42,14 @@
     <dialog id="textDialog" class="modal" data-focus="#textContent">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">
-          <h2>上传文本</h2>
-          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+          <h2 data-i18n="uploadTextTitle">上传文本</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
         </div>
       </form>
       <div class="modal-body">
         <form id="textForm" class="stack">
-          <textarea id="textContent" name="content" placeholder="输入要共享的文本"></textarea>
-          <button type="submit">上传文本</button>
+          <textarea id="textContent" name="content" placeholder="输入要共享的文本" data-i18n-placeholder="textPlaceholder"></textarea>
+          <button type="submit" data-i18n="uploadTextSubmit">上传文本</button>
         </form>
       </div>
     </dialog>
@@ -56,8 +57,8 @@
     <dialog id="fileDialog" class="modal">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">
-          <h2>上传文件</h2>
-          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+          <h2 data-i18n="uploadFileTitle">上传文件</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
         </div>
       </form>
       <div class="modal-body">
@@ -65,8 +66,8 @@
           <label id="dropZone" class="upload-drop">
             <input id="fileInput" name="file" type="file" multiple>
             <span class="upload-icon">↑</span>
-            <strong>点击选择文件，选完自动上传</strong>
-            <small id="fileHint">选择后自动上传</small>
+            <strong data-i18n="clientPickFile">点击选择文件，选完自动上传</strong>
+            <small id="fileHint" data-i18n="autoUploadHint">选择后自动上传</small>
           </label>
         </form>
       </div>
@@ -75,22 +76,21 @@
     <dialog id="qrDialog" class="modal qr-modal">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">
-          <h2>二维码</h2>
-          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+          <h2 data-i18n="qrCode">二维码</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
         </div>
       </form>
       <div class="modal-body qr-modal-body">
         <div id="qrDialogPreview" class="qr-dialog-preview"></div>
         <div class="client-link-box qr-dialog-link">
           <span id="qrDialogUrlText"></span>
-          <button id="qrDialogCopyButton" class="nav-link" type="button">复制链接</button>
+          <button id="qrDialogCopyButton" class="nav-link" type="button" data-i18n="copyLink">复制链接</button>
         </div>
       </div>
     </dialog>
 
+    <script src="/app-utils.js"></script>
+    <script src="/app-core.js"></script>
     <script src="/app.js"></script>
-    <script>
-      window.FileShareApp.init({ role: 'client' });
-    </script>
   </body>
 </html>
