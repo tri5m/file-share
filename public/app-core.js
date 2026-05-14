@@ -132,9 +132,8 @@
       const titleAction = isText
         ? ''
         : `<button class="inline-icon-button" data-action="copy-link" data-id="${item.id}" aria-label="${t('copyLink')}" title="${t('copyLink')}">🔗</button>`;
-      const downloadStat = state.role === 'admin' && !isText ? state.downloadStats[item.id] : null;
-      const downloadStatus = downloadStat
-        ? `<span class="download-status">⬇ ${formatSpeed(downloadStat.speedBps)}</span>`
+      const downloadStatus = state.role === 'admin' && !isText
+        ? `<span class="download-status" data-download-status="${item.id}" hidden></span>`
         : '';
       const description = isText
         ? `<div class="meta">${formatTextLength(item.content || item.title)} · ${formatTime(item.createdAt)}</div>`
@@ -163,6 +162,20 @@
         </article>
       `;
     }).join('');
+    updateDownloadStatuses();
+  }
+
+  function updateDownloadStatuses() {
+    document.querySelectorAll('[data-download-status]').forEach((node) => {
+      const stat = state.downloadStats[node.dataset.downloadStatus];
+      if (stat) {
+        node.textContent = `⬇ ${formatSpeed(stat.speedBps)}`;
+        node.hidden = false;
+      } else {
+        node.textContent = '';
+        node.hidden = true;
+      }
+    });
   }
 
   async function loadItems() {
@@ -400,7 +413,7 @@
     state.downloadEvents = events;
     events.onerror = () => {
       state.downloadStats = {};
-      render();
+      updateDownloadStatuses();
     };
     events.onmessage = (event) => {
       const stats = JSON.parse(event.data);
@@ -409,7 +422,7 @@
           .filter((item) => item.activeCount > 0)
           .map((item) => [item.itemId, item])
       );
-      render();
+      updateDownloadStatuses();
     };
   }
 

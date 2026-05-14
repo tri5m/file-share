@@ -93,7 +93,7 @@
       copyLink: 'Copy link',
       shareDropTitle: 'Drop or click to share files',
       shareDropHint: 'Uses local paths. Files are not copied.',
-      startShare: 'Start sharing',
+      startShare: 'Start',
       port: 'Port',
       sharedList: 'Shared',
       connecting: 'Connecting',
@@ -131,11 +131,11 @@
       linkCopied: 'Link copied',
       serviceNotStarted: 'Not started',
       notStarted: 'Not started',
-      stopShare: 'Stop sharing',
+      stopShare: 'STOP',
       validPort: 'Invalid port',
       stopping: 'Stopping',
       starting: 'Starting',
-      synced: 'Live sync',
+      synced: 'Online',
       reconnecting: 'Reconnecting',
       reconnectToast: 'Reconnecting...',
       sharing: 'Sharing',
@@ -160,7 +160,9 @@
     }
   };
 
-  const browserLanguage = navigator.language || '';
+  const browserLanguage =
+    navigator.language
+    || '';
   const language = browserLanguage.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en-US';
 
   function t(key, values = {}) {

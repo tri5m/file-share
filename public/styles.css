@@ -1002,6 +1002,10 @@ button.danger:hover {
   line-height: 1;
 }
 
+.download-status[hidden] {
+  display: none !important;
+}
+
 button.secondary:disabled {
   opacity: 0.75;
   cursor: not-allowed;
