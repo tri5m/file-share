@@ -242,6 +242,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
         .map(|address| address.ip.clone())
         .unwrap_or_else(|| "127.0.0.1".to_string());
 
+    // 管理端接口只允许本机调用；启动时缓存当前机器地址，避免局域网客户端误触管理能力。
     let mut local_addresses = HashSet::from([
         IpAddr::V4(Ipv4Addr::LOCALHOST),
         IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
@@ -268,6 +269,7 @@ pub async fn start(port: u16) -> Result<ServerInfo, String> {
     };
     let (download_shutdown_tx, mut download_shutdown_rx) = oneshot::channel::<()>();
     let download_state = state.clone();
+    // 下载状态单独按秒聚合后通过 SSE 推给管理端，用于显示正在下载和速率。
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         loop {
@@ -562,6 +564,7 @@ async fn upload(
         }
     }
 
+    // 管理端共享文件必须走系统文件选择器和本机路径登记，不能退化成 HTTP 上传复制。
     if source == "admin" {
         for item in &items {
             let _ = fs::remove_file(&item.storage_path).await;
@@ -647,6 +650,7 @@ async fn download(
     let metadata = file.metadata().await?;
     let file_size = metadata.len();
     let fallback_name = ascii_fallback_name(&item.title);
+    // 浏览器、播放器和下载器会依赖 Range；这里同时支持完整下载和分段下载。
     let range = parse_range_header(headers.get(RANGE), file_size)?;
     let download_id = item.id.clone();
     mark_download_started(&state, &download_id).await;
@@ -728,6 +732,7 @@ async fn download(
             if read == 0 {
                 break;
             }
+            // 每个分片写入下载计数，后台任务会把它折算成管理端看到的速率。
             record_download_bytes(&state, &download_id, read as u64).await;
             yield Ok::<Bytes, std::io::Error>(Bytes::copy_from_slice(&buffer[..read]));
         }
@@ -836,6 +841,7 @@ fn public_items(items: &[Item]) -> Vec<PublicItem> {
             mime: item.mime.clone(),
             size: item.size,
             source: item.source.clone(),
+            // 文件可能被用户从原位置移动或删除，列表每次输出时都重新标记可用性。
             exists: item.kind == "text" || Path::new(&item.storage_path).exists(),
             created_at: item.created_at.clone(),
             updated_at: item.updated_at.clone(),

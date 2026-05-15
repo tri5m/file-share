@@ -309,6 +309,7 @@
   function startServerStatusSync() {
     if (state.statusTimer) return;
     syncServerStatus();
+    // 托盘也能启动/停止服务，管理端窗口需要持续同步后台状态。
     state.statusTimer = window.setInterval(syncServerStatus, 1000);
   }
 
@@ -391,6 +392,7 @@
   function connectEvents() {
     const status = $('status');
     if (state.events) state.events.close();
+    // 共享列表由服务端 SSE 推送，管理端和客户端保持同一份实时视图。
     const events = new EventSource(`${state.apiBase}/api/events`);
     state.events = events;
     events.onopen = () => { status.textContent = t('synced'); };
@@ -443,6 +445,7 @@
     });
 
     try {
+      // 这里只提交本机路径，实际文件仍留在原位置，避免复制大文件。
       await request('/api/local-file', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
