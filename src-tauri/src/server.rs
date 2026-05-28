@@ -17,7 +17,7 @@ use axum::{
         },
         HeaderMap, HeaderValue, StatusCode,
     },
-    response::{IntoResponse, Response, Sse},
+    response::{sse::KeepAlive, IntoResponse, Response, Sse},
     routing::{delete, get, post},
     Json, Router,
 };
@@ -458,7 +458,7 @@ async fn sse_events(
             }
         }
     };
-    Sse::new(stream)
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 async fn download_events(
@@ -478,7 +478,7 @@ async fn download_events(
             }
         }
     };
-    Sse::new(stream)
+    Sse::new(stream).keep_alive(KeepAlive::default())
 }
 
 async fn add_text(

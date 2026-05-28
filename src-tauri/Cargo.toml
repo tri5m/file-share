@@ -1,6 +1,6 @@
 [package]
 name = "fileshare"
-version = "1.0.8"
+version = "1.0.9"
 description = "LAN file sharing desktop app"
 authors = ["Trifolium Wang <trifolium.wang@gmail.com>"]
 license = "MIT"
@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 async-stream = "0.3"
 axum = { version = "0.7", features = ["multipart"] }
+base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 dirs = "5"
 futures-core = "0.3"

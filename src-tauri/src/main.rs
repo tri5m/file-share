@@ -6,9 +6,10 @@ mod localization;
 mod network;
 mod server;
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use localization::tr;
-use serde::Serialize;
-use std::{path::PathBuf, sync::Mutex, time::Duration};
+use serde::{Deserialize, Serialize};
+use std::{path::{Path, PathBuf}, sync::Mutex, time::Duration};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -19,6 +20,7 @@ use tauri::{
 use tauri::ActivationPolicy;
 
 const DEFAULT_PORT: u16 = 5421;
+const MAX_PATHLESS_PASTED_ADMIN_FILE_BYTES: usize = 50 * 1024 * 1024;
 const TRAY_TOGGLE_SHARE_ID: &str = "toggle-share";
 const TRAY_CHECK_UPDATE_ID: &str = "check-update";
 #[cfg(target_os = "windows")]
@@ -54,6 +56,13 @@ struct AdminFileDropPayload {
     position: Option<DragPosition>,
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PastedFilePayload {
+    name: String,
+    data: String,
+}
+
 #[tauri::command]
 fn pick_admin_files() -> Result<Vec<String>, String> {
     let files = rfd::FileDialog::new()
@@ -87,6 +96,60 @@ async fn download_admin_file(id: String) -> Result<(), String> {
 async fn reveal_admin_file(id: String) -> Result<(), String> {
     let path = server::item_file_path(&id).await?;
     reveal_file(&path)
+}
+
+#[tauri::command]
+async fn share_pasted_admin_files(pathless_files: Vec<PastedFilePayload>) -> Result<usize, String> {
+    if pathless_files.is_empty() {
+        return Ok(0);
+    }
+
+    let dir = pasted_admin_file_dir();
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let mut paths = Vec::new();
+    for file in pathless_files {
+        let bytes = match BASE64_STANDARD.decode(file.data) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                cleanup_files(&paths).await;
+                return Err(error.to_string());
+            }
+        };
+        if bytes.is_empty() {
+            continue;
+        }
+        if bytes.len() > MAX_PATHLESS_PASTED_ADMIN_FILE_BYTES {
+            cleanup_files(&paths).await;
+            return Err(tr(
+                "paste_file_too_large",
+                &[("size", "50MB".to_string())],
+            ));
+        }
+
+        let target = match next_available_path(&dir, &safe_filename(&file.name)).await {
+            Ok(target) => target,
+            Err(error) => {
+                cleanup_files(&paths).await;
+                return Err(error);
+            }
+        };
+        if let Err(error) = tokio::fs::write(&target, bytes).await {
+            cleanup_files(&paths).await;
+            return Err(error.to_string());
+        }
+        paths.push(target);
+    }
+
+    match server::add_admin_local_files(paths.clone()).await {
+        Ok(count) => Ok(count),
+        Err(error) => {
+            cleanup_files(&paths).await;
+            Err(error)
+        }
+    }
 }
 
 fn reveal_file(path: &PathBuf) -> Result<(), String> {
@@ -125,6 +188,67 @@ fn reveal_file(path: &PathBuf) -> Result<(), String> {
 
     #[allow(unreachable_code)]
     Err(tr("not_supported", &[]))
+}
+
+fn pasted_admin_file_dir() -> PathBuf {
+    dirs::cache_dir()
+        .or_else(dirs::data_local_dir)
+        .or_else(dirs::data_dir)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("FileShare")
+        .join("pasted")
+}
+
+async fn cleanup_files(paths: &[PathBuf]) {
+    for path in paths {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+}
+
+async fn next_available_path(dir: &Path, filename: &str) -> Result<PathBuf, String> {
+    let original = Path::new(filename);
+    let stem = original
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("file");
+    let ext = original
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| format!(".{value}"))
+        .unwrap_or_default();
+
+    let mut candidate = dir.join(filename);
+    let mut index = 1;
+    while tokio::fs::try_exists(&candidate)
+        .await
+        .map_err(|error| error.to_string())?
+    {
+        candidate = dir.join(format!("{stem} ({index}){ext}"));
+        index += 1;
+    }
+    Ok(candidate)
+}
+
+fn safe_filename(value: &str) -> String {
+    let name = Path::new(value)
+        .file_name()
+        .and_then(|part| part.to_str())
+        .unwrap_or("file");
+    let cleaned: String = name
+        .chars()
+        .map(|ch| {
+            if ch.is_alphanumeric() || matches!(ch, '.' | '-' | '_' | ' ' | '(' | ')') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() {
+        "file".to_string()
+    } else {
+        cleaned
+    }
 }
 
 #[tauri::command]
@@ -195,6 +319,7 @@ fn main() {
             pick_admin_files,
             download_admin_file,
             reveal_admin_file,
+            share_pasted_admin_files,
             start_server,
             stop_server,
             server_status,

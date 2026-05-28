@@ -45,6 +45,8 @@ pub fn tr(key: &str, values: &[(&str, String)]) -> String {
         (false, "selected_file_missing") => "File missing",
         (true, "only_file") => "只能共享文件",
         (false, "only_file") => "Files only",
+        (true, "paste_file_too_large") => "无本机路径的粘贴文件最大支持 {size}，请改用拖拽或选择文件",
+        (false, "paste_file_too_large") => "Pasted files without a local path are limited to {size}. Please drag or choose the file instead.",
         (true, "item_missing") => "条目不存在",
         (false, "item_missing") => "Not found",
         (true, "text_no_download") => "文本无需下载",

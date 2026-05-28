@@ -11,6 +11,8 @@
     t
   } = window.FileShareUtils;
 
+  const MAX_PATHLESS_PASTED_ADMIN_FILE_BYTES = 50 * 1024 * 1024;
+
   const state = {
     role: 'client',
     items: [],
@@ -24,10 +26,16 @@
     selectedAddressUrl: '',
     statusTimer: null,
     toastId: 0,
+    reconnectToastTimer: null,
     adminFileSharing: false,
     adminDragDropBound: false,
     adminDropFeedbackTimer: null
   };
+
+  function isEditableTarget(target) {
+    if (!target) return false;
+    return Boolean(target.closest?.('input, textarea, select, [contenteditable="true"]'));
+  }
 
   function showToast(message, type = 'info', duration = 3200) {
     if (!message) return;
@@ -267,10 +275,12 @@
     state.items = [];
     state.downloadStats = {};
     if (state.events) {
+      state.events.__manuallyClosed = true;
       state.events.close();
       state.events = null;
     }
     if (state.downloadEvents) {
+      state.downloadEvents.__manuallyClosed = true;
       state.downloadEvents.close();
       state.downloadEvents = null;
     }
@@ -391,14 +401,28 @@
 
   function connectEvents() {
     const status = $('status');
-    if (state.events) state.events.close();
+    if (state.events) {
+      state.events.__manuallyClosed = true;
+      state.events.close();
+    }
     // 共享列表由服务端 SSE 推送，管理端和客户端保持同一份实时视图。
     const events = new EventSource(`${state.apiBase}/api/events`);
     state.events = events;
-    events.onopen = () => { status.textContent = t('synced'); };
+    events.__opened = false;
+    events.__manuallyClosed = false;
+    events.onopen = () => {
+      events.__opened = true;
+      status.textContent = t('synced');
+    };
     events.onerror = () => {
+      if (events.__manuallyClosed || state.events !== events || (state.role === 'admin' && !state.serverRunning)) return;
       status.textContent = t('reconnecting');
-      showToast(t('reconnectToast'), 'warning', 2200);
+      if (events.__opened && !state.reconnectToastTimer) {
+        showToast(t('reconnectToast'), 'warning', 2200);
+        state.reconnectToastTimer = window.setTimeout(() => {
+          state.reconnectToastTimer = null;
+        }, 3000);
+      }
     };
     events.onmessage = (event) => {
       state.items = JSON.parse(event.data);
@@ -410,10 +434,14 @@
   }
 
   function connectDownloadEvents() {
-    if (state.downloadEvents) state.downloadEvents.close();
+    if (state.downloadEvents) {
+      state.downloadEvents.__manuallyClosed = true;
+      state.downloadEvents.close();
+    }
     const events = new EventSource(`${state.apiBase}/api/download-events`);
     state.downloadEvents = events;
     events.onerror = () => {
+      if (events.__manuallyClosed || state.downloadEvents !== events) return;
       state.downloadStats = {};
       updateDownloadStatuses();
     };
@@ -544,6 +572,111 @@
     showToast(message, 'success', 10000);
   }
 
+  async function publishTextContent(content) {
+    const text = String(content || '').trim();
+    if (!text) return;
+
+    await request('/api/text', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: text, source: state.role })
+    });
+  }
+
+  async function uploadFiles(files, options = {}) {
+    const pickedFiles = Array.from(files || []).filter((file) => file?.size > 0);
+    if (!pickedFiles.length) return [];
+
+    options.onStart?.(pickedFiles);
+    try {
+      const data = new FormData();
+      data.append('source', state.role);
+      for (const file of pickedFiles) {
+        data.append('file', file, file.name || 'file');
+      }
+      const result = await request('/api/upload', { method: 'POST', body: data });
+      options.onSuccess?.(pickedFiles, result);
+      return result;
+    } catch (error) {
+      options.onError?.(error);
+      throw error;
+    } finally {
+      options.onDone?.();
+    }
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener('load', () => {
+        const result = String(reader.result || '');
+        resolve(result.includes(',') ? result.split(',').pop() : result);
+      });
+      reader.addEventListener('error', () => reject(reader.error || new Error(t('uploadFailed'))));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function localPathFromFile(file) {
+    const candidates = [
+      file?.path,
+      file?.filepath,
+      file?.mozFullPath,
+      file?.webkitRelativePath
+    ];
+    return candidates.find((value) => (
+      typeof value === 'string'
+      && (value.startsWith('/') || /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\'))
+    )) || '';
+  }
+
+  function hasDirectoryItems(items) {
+    return Array.from(items || []).some((item) => {
+      const entry = item?.webkitGetAsEntry?.();
+      return Boolean(entry?.isDirectory);
+    });
+  }
+
+  async function sharePastedAdminFiles(files, options = {}) {
+    const pickedFiles = Array.from(files || []).filter((file) => file?.size > 0);
+    if (!pickedFiles.length) return 0;
+
+    options.onStart?.(pickedFiles);
+    try {
+      const localPaths = pickedFiles.map(localPathFromFile).filter(Boolean);
+      const filesWithoutPath = pickedFiles.filter((file) => !localPathFromFile(file));
+      const oversizedFile = filesWithoutPath.find((file) => file.size > MAX_PATHLESS_PASTED_ADMIN_FILE_BYTES);
+      if (oversizedFile) {
+        throw new Error(t('pasteFileTooLarge', { size: '50MB' }));
+      }
+      let count = 0;
+
+      if (localPaths.length) {
+        await addAdminLocalFiles(localPaths);
+        count += localPaths.length;
+      }
+
+      const payload = [];
+      for (const file of filesWithoutPath) {
+        payload.push({
+          name: file.name || 'file',
+          data: await fileToBase64(file)
+        });
+      }
+
+      if (payload.length) {
+        count += await window.__TAURI__.core.invoke('share_pasted_admin_files', { pathlessFiles: payload });
+      }
+      options.onSuccess?.(pickedFiles, count);
+      return count;
+    } catch (error) {
+      options.onError?.(error);
+      throw error;
+    } finally {
+      options.onDone?.();
+    }
+  }
+
   async function bindAdminFileDrop() {
     if (state.role !== 'admin' || state.adminDragDropBound) return;
 
@@ -630,6 +763,57 @@
     });
   }
 
+  function bindPasteSharing() {
+    document.addEventListener('paste', (event) => {
+      const clipboard = event.clipboardData;
+      if (!clipboard) return;
+
+      if (hasDirectoryItems(clipboard.items)) {
+        event.preventDefault();
+        showToast(t('unsupportedShareType'), 'warning');
+        return;
+      }
+
+      const files = Array.from(clipboard.files || []).filter((file) => file.size > 0);
+      if (files.length) {
+        event.preventDefault();
+        const adminPaste = state.role === 'admin' && window.__TAURI__?.core?.invoke;
+        const shareFiles = adminPaste ? sharePastedAdminFiles : uploadFiles;
+
+        if (adminPaste) setAdminDropPresentation('pending');
+        shareFiles(files, {
+          onStart: () => showToast(t('pastingFiles', { count: files.length })),
+          onSuccess: (_files, count) => {
+            const sharedCount = Number(count) || files.length;
+            if (adminPaste) flashAdminDropSuccess(sharedCount);
+            showToast(t('pasteFileDone', { count: sharedCount }), 'success');
+          },
+          onError: (error) => {
+            if (adminPaste) setAdminDropPresentation('idle');
+            showToast(error?.message || String(error) || t('uploadFailed'), 'error');
+          }
+        }).catch(() => {});
+        return;
+      }
+
+      if (Array.from(clipboard.items || []).some((item) => item.kind === 'file')) {
+        event.preventDefault();
+        showToast(t('unsupportedShareType'), 'warning');
+        return;
+      }
+
+      if (isEditableTarget(event.target)) return;
+
+      const text = clipboard.getData('text/plain');
+      if (!text.trim()) return;
+
+      event.preventDefault();
+      publishTextContent(text)
+        .then(() => showToast(t('pasteTextDone'), 'success'))
+        .catch((error) => showToast(error?.message || String(error), 'error'));
+    });
+  }
+
   async function bindTauriEvents() {
     const events = window.__TAURI__?.event;
     if (!events?.listen) return;
@@ -700,11 +884,7 @@
       event.preventDefault();
       const content = $('textContent').value.trim();
       if (!content) return;
-      await request('/api/text', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content, source: state.role })
-      });
+      await publishTextContent(content);
       event.target.reset();
       event.target.closest('dialog')?.close();
     });
@@ -737,12 +917,7 @@
           dropZone.classList.add('uploading');
         }
         try {
-          const data = new FormData();
-          data.append('source', state.role);
-          for (const file of files) {
-            data.append('file', file, file.name);
-          }
-          await request('/api/upload', { method: 'POST', body: data });
+          await uploadFiles(files);
           fileForm.reset();
           updateFileHint(t('uploadDone'));
           window.setTimeout(() => updateFileHint(), 900);
@@ -772,6 +947,10 @@
         ['dragenter', 'dragover'].forEach((name) => {
           dropZone.addEventListener(name, (event) => {
             event.preventDefault();
+            if (hasDirectoryItems(event.dataTransfer?.items)) {
+              dropZone.classList.remove('dragging');
+              return;
+            }
             dropZone.classList.add('dragging');
           });
         });
@@ -782,6 +961,10 @@
           });
         });
         dropZone.addEventListener('drop', (event) => {
+          if (hasDirectoryItems(event.dataTransfer?.items)) {
+            showToast(t('unsupportedShareType'), 'warning');
+            return;
+          }
           if (event.dataTransfer?.files?.length) {
             fileInput.files = event.dataTransfer.files;
             uploadSelectedFiles().catch((error) => showToast(error.message, 'error'));
@@ -878,6 +1061,7 @@
       state.apiBase = options.apiBase || '';
       bindQrPreview();
       bindForms();
+      bindPasteSharing();
       if (state.role === 'admin' && state.isTauri) {
         bindServerControls();
         bindTauriEvents();

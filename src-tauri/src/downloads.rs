@@ -82,10 +82,11 @@ async fn mark_download_finished(state: &AppState, item_id: &str) {
 
 pub async fn broadcast_download_events(state: &AppState) -> AppResult<()> {
     let snapshot = download_snapshot(state).await;
-    state
-        .download_events
-        .send(snapshot)
-        .map_err(AppError::internal)?;
+    if state.download_events.receiver_count() == 0 {
+        return Ok(());
+    }
+
+    state.download_events.send(snapshot).map_err(AppError::internal)?;
     Ok(())
 }
 

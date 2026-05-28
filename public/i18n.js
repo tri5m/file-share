@@ -75,6 +75,11 @@
       uploadingFiles: '正在上传 {count} 个文件，请保持页面打开',
       uploadDone: '上传完成',
       uploadFailed: '上传失败，请重新选择',
+      pastingFiles: '正在分享粘贴的 {count} 个文件',
+      pasteFileDone: '已分享 {count} 个粘贴文件',
+      pasteTextDone: '已分享粘贴文本',
+      pasteFileTooLarge: '无本机路径的粘贴文件最大支持 {size}，请改用拖拽或选择文件',
+      unsupportedShareType: '暂不支持分享目录或该类型内容',
       openLocationFailed: '无法打开文件位置',
       openFailed: '打开失败：{message}',
       sourceMissing: '源文件已不存在'
@@ -154,6 +159,11 @@
       uploadingFiles: 'Uploading {count}...',
       uploadDone: 'Uploaded',
       uploadFailed: 'Upload failed',
+      pastingFiles: 'Sharing {count} pasted file(s)',
+      pasteFileDone: 'Shared {count} pasted file(s)',
+      pasteTextDone: 'Pasted text shared',
+      pasteFileTooLarge: 'Pasted files without a local path are limited to {size}. Please drag or choose the file instead.',
+      unsupportedShareType: 'Folders or this content type are not supported',
       openLocationFailed: 'Cannot open location',
       openFailed: 'Open failed: {message}',
       sourceMissing: 'File missing'
