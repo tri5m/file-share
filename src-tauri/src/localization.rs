@@ -25,6 +25,12 @@ pub fn tr(key: &str, values: &[(&str, String)]) -> String {
         (false, "about_title") => "About FileShare",
         (true, "about_desc") => "FileShare {version}\n局域网文件共享工具\n\n作者: Trifolium Wang\nGitHub: https://github.com/tri5m/file-share",
         (false, "about_desc") => "FileShare {version}\nLAN file sharing\n\nAuthor: Trifolium Wang\nGitHub: https://github.com/tri5m/file-share",
+        (true, "show_window") => "显示窗口",
+        (false, "show_window") => "Show window",
+        (true, "quit") => "退出",
+        (false, "quit") => "Quit",
+        (true, "about") => "关于",
+        (false, "about") => "About",
         (true, "stop_share") => "停止分享",
         (false, "stop_share") => "STOP",
         (true, "start_share") => "启动分享",
@@ -68,10 +74,58 @@ pub fn tr(key: &str, values: &[(&str, String)]) -> String {
 }
 
 fn is_zh_locale() -> bool {
-    std::env::var("LANG")
-        .or_else(|_| std::env::var("LC_ALL"))
-        .or_else(|_| std::env::var("LC_MESSAGES"))
-        .unwrap_or_default()
+    if ["LANG", "LC_ALL", "LC_MESSAGES"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .any(|value| is_zh_language_tag(&value))
+    {
+        return true;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        if macos_prefers_zh() {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn is_zh_language_tag(value: &str) -> bool {
+    value
+        .trim()
+        .trim_matches('"')
         .to_lowercase()
+        .replace('_', "-")
         .starts_with("zh")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_prefers_zh() -> bool {
+    if let Ok(output) = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleLanguages"])
+        .output()
+    {
+        let text = String::from_utf8_lossy(&output.stdout);
+        if let Some(first_language) = text
+            .lines()
+            .map(|line| {
+                line.trim()
+                    .trim_end_matches(',')
+                    .trim_matches('"')
+                    .trim_matches('\'')
+            })
+            .find(|line| !line.is_empty() && !matches!(*line, "(" | ")"))
+        {
+            return is_zh_language_tag(first_language);
+        }
+    }
+
+    std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleLocale"])
+        .output()
+        .ok()
+        .map(|output| is_zh_language_tag(&String::from_utf8_lossy(&output.stdout)))
+        .unwrap_or(false)
 }

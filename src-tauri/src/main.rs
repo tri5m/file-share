@@ -404,9 +404,9 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         None::<&str>,
     )?;
     #[cfg(target_os = "windows")]
-    let about = MenuItem::with_id(app, TRAY_ABOUT_ID, "关于", true, None::<&str>)?;
-    let show = MenuItem::with_id(app, TRAY_SHOW_ID, "显示窗口", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "退出", true, None::<&str>)?;
+    let about = MenuItem::with_id(app, TRAY_ABOUT_ID, tr("about", &[]), true, None::<&str>)?;
+    let show = MenuItem::with_id(app, TRAY_SHOW_ID, tr("show_window", &[]), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, TRAY_QUIT_ID, tr("quit", &[]), true, None::<&str>)?;
     #[cfg(target_os = "windows")]
     let menu = Menu::with_items(app, &[&show, &toggle_share, &check_update, &about, &quit])?;
     #[cfg(not(target_os = "windows"))]
