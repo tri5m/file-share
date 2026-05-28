@@ -2,8 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr},
 };
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
+#[cfg(target_os = "macos")]
 use std::process::Command;
 
 #[derive(Debug, Clone)]
@@ -52,11 +51,7 @@ fn interface_display_names() -> HashMap<String, String> {
     {
         macos_interface_display_names()
     }
-    #[cfg(target_os = "windows")]
-    {
-        windows_interface_display_names()
-    }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(target_os = "macos"))]
     {
         HashMap::new()
     }
@@ -80,43 +75,6 @@ fn macos_interface_display_names() -> HashMap<String, String> {
             if let Some(name) = current_name.take() {
                 names.insert(device.trim().to_string(), name);
             }
-        }
-    }
-    names
-}
-
-#[cfg(target_os = "windows")]
-fn windows_interface_display_names() -> HashMap<String, String> {
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
-    let mut command = Command::new("powershell");
-    command
-        .creation_flags(CREATE_NO_WINDOW)
-        .args([
-            "-NoProfile",
-            "-WindowStyle",
-            "Hidden",
-            "-Command",
-            "Get-NetAdapter | ForEach-Object { \"$($_.InterfaceDescription)`t$($_.Name)`t$($_.InterfaceAlias)\" }",
-        ]);
-    let output = command.output();
-    let Ok(output) = output else {
-        return HashMap::new();
-    };
-    let mut names = HashMap::new();
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let mut parts = line.split('\t');
-        let description = parts.next().unwrap_or_default().trim();
-        let name = parts.next().unwrap_or_default().trim();
-        let alias = parts.next().unwrap_or_default().trim();
-        let display = if alias.is_empty() { name } else { alias };
-        if display.is_empty() {
-            continue;
-        }
-        if !description.is_empty() {
-            names.insert(description.to_string(), display.to_string());
-        }
-        if !name.is_empty() {
-            names.insert(name.to_string(), display.to_string());
         }
     }
     names
