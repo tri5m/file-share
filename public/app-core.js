@@ -12,6 +12,7 @@
   } = window.FileShareUtils;
 
   const MAX_PATHLESS_PASTED_ADMIN_FILE_BYTES = 50 * 1024 * 1024;
+  const SERVER_BUTTON_ANIMATION_MS = 780;
 
   const state = {
     role: 'client',
@@ -29,7 +30,14 @@
     reconnectToastTimer: null,
     adminFileSharing: false,
     adminDragDropBound: false,
-    adminDropFeedbackTimer: null
+    adminDropFeedbackTimer: null,
+    serverButtonAnimation: null,
+    serverButtonAnimationTarget: null,
+    serverVisualStopped: true,
+    serverTransitionToken: 0,
+    serverDesiredRunning: false,
+    serverDesiredPort: 5421,
+    serverCommandSync: null
   };
 
   function isEditableTarget(target) {
@@ -201,11 +209,14 @@
     applyShareInfo(data);
   }
 
-  async function applyServerInfo(info) {
+  async function applyServerInfo(info, syncDesired = !state.serverCommandSync) {
     const wasRunning = state.serverRunning;
     state.apiBase = `http://127.0.0.1:${info.port}`;
     state.serverRunning = true;
-    document.body.classList.remove('server-stopped');
+    if (syncDesired) {
+      state.serverDesiredRunning = true;
+      setServerStopped(false);
+    }
     applyShareInfo(info);
     setServerControlsRunning(info);
 
@@ -246,9 +257,10 @@
     if (copy) {
       copy.onclick = async () => {
         const copied = await copyText(state.role === 'admin' ? currentShareUrl() : window.location.origin);
-        copy.textContent = copied ? t('copied') : t('copyLink');
+        copy.classList.toggle('copied', copied);
+        copy.classList.toggle('copy-failed', !copied);
         showToast(copied ? t('linkCopied') : t('copyFailed'), copied ? 'success' : 'error');
-        setTimeout(() => { copy.textContent = t('copyLink'); }, 1200);
+        setTimeout(() => copy.classList.remove('copied', 'copy-failed'), 1200);
       };
     }
   }
@@ -269,7 +281,114 @@
     }
   }
 
-  function resetServerUi() {
+  function readServerButtonFrame(button) {
+    const style = window.getComputedStyle(button);
+    const rect = button.getBoundingClientRect();
+    const layoutWidth = Number.parseFloat(style.width) || rect.width;
+    const layoutHeight = Number.parseFloat(style.height) || rect.height;
+    const scaleY = layoutHeight ? rect.height / layoutHeight : 1;
+    return {
+      centerX: rect.left + rect.width / 2,
+      centerY: rect.top + rect.height / 2,
+      width: rect.width,
+      height: rect.height,
+      fontSize: (Number.parseFloat(style.fontSize) || 13) * scaleY
+    };
+  }
+
+  function setServerStopped(stopped, animate = true) {
+    const body = document.body;
+    const button = $('startServerButton');
+    const target = stopped ? 'stopped' : 'running';
+    const alreadyAtTarget = state.serverVisualStopped === stopped;
+
+    if (alreadyAtTarget) {
+      return state.serverButtonAnimationTarget === target
+        ? state.serverButtonAnimation?.finished?.catch(() => {}) || Promise.resolve()
+        : Promise.resolve();
+    }
+
+    state.serverVisualStopped = stopped;
+    const transitionToken = ++state.serverTransitionToken;
+
+    if (!button || !animate || typeof button.animate !== 'function') {
+      state.serverButtonAnimation?.cancel();
+      state.serverButtonAnimation = null;
+      state.serverButtonAnimationTarget = null;
+      button?.classList.remove('share-button-animating');
+      button?.classList.toggle('share-button-stopped', stopped);
+      body.classList.remove('server-ui-hiding', 'server-ui-revealing');
+      body.classList.toggle('server-stopped', stopped);
+      return Promise.resolve();
+    }
+
+    const from = readServerButtonFrame(button);
+    state.serverButtonAnimation?.cancel();
+    button.classList.add('share-button-animating');
+
+    if (stopped) {
+      body.classList.remove('server-stopped', 'server-ui-revealing');
+      body.classList.add('server-ui-hiding');
+      button.classList.add('share-button-stopped');
+    } else {
+      const startsFromStoppedLayout = body.classList.contains('server-stopped');
+      if (startsFromStoppedLayout) {
+        body.classList.add('server-ui-revealing');
+        body.classList.remove('server-stopped');
+        body.offsetWidth;
+        requestAnimationFrame(() => {
+          if (state.serverTransitionToken === transitionToken && !state.serverVisualStopped) {
+            body.classList.remove('server-ui-revealing');
+          }
+        });
+      } else {
+        body.classList.remove('server-ui-hiding', 'server-ui-revealing');
+      }
+      button.classList.remove('share-button-stopped');
+    }
+
+    const to = readServerButtonFrame(button);
+    const scaleX = to.width ? from.width / to.width : 1;
+    const scaleY = to.height ? from.height / to.height : 1;
+    const translateX = from.centerX - to.centerX;
+    const translateY = from.centerY - to.centerY;
+    const startFontSize = scaleY ? from.fontSize / scaleY : from.fontSize;
+    const baseTransform = 'translate(-50%, -50%)';
+
+    const animation = button.animate([
+      {
+        transform: `${baseTransform} translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`,
+        fontSize: `${startFontSize}px`
+      },
+      {
+        transform: `${baseTransform} translate(0, 0) scale(1, 1)`,
+        fontSize: `${to.fontSize}px`
+      }
+    ], {
+      duration: SERVER_BUTTON_ANIMATION_MS,
+      easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+      fill: 'both'
+    });
+    state.serverButtonAnimation = animation;
+    state.serverButtonAnimationTarget = target;
+
+    return animation.finished
+      .catch(() => {})
+      .then(() => {
+        if (state.serverTransitionToken !== transitionToken) return;
+        body.classList.remove('server-ui-hiding', 'server-ui-revealing');
+        body.classList.toggle('server-stopped', stopped);
+      })
+      .finally(() => {
+        if (state.serverButtonAnimation !== animation) return;
+        animation.cancel();
+        button.classList.remove('share-button-animating');
+        state.serverButtonAnimation = null;
+        state.serverButtonAnimationTarget = null;
+      });
+  }
+
+  function resetServerUi(animate = true, syncDesired = !state.serverCommandSync) {
     state.serverRunning = false;
     state.apiBase = '';
     state.items = [];
@@ -286,7 +405,10 @@
     }
     const root = $('items');
     if (root) root.innerHTML = '';
-    document.body.classList.add('server-stopped');
+    if (syncDesired) {
+      state.serverDesiredRunning = false;
+      setServerStopped(true, animate);
+    }
     $('clientQr') && ($('clientQr').innerHTML = '');
     $('clientUrlText') && ($('clientUrlText').textContent = t('serviceNotStarted'));
     const select = $('clientAddressSelect');
@@ -302,7 +424,7 @@
   }
 
   async function syncServerStatus() {
-    if (!state.isTauri || state.role !== 'admin' || !window.__TAURI__?.core?.invoke) return;
+    if (!state.isTauri || state.role !== 'admin' || !window.__TAURI__?.core?.invoke || state.serverCommandSync) return;
 
     try {
       const info = await window.__TAURI__.core.invoke('server_status');
@@ -332,7 +454,7 @@
     }
     if (button) {
       button.disabled = false;
-      button.textContent = t('stopShare');
+      button.textContent = t(state.serverDesiredRunning ? 'stopShare' : 'startShare');
     }
   }
 
@@ -340,12 +462,54 @@
     const portInput = $('serverPort');
     const button = $('startServerButton');
     if (portInput) {
-      portInput.disabled = false;
+      portInput.disabled = state.serverDesiredRunning;
     }
     if (button) {
       button.disabled = false;
-      button.textContent = t('startShare');
+      button.textContent = t(state.serverDesiredRunning ? 'stopShare' : 'startShare');
     }
+  }
+
+  function updateServerControls() {
+    if (state.serverRunning && state.shareInfo) {
+      setServerControlsRunning(state.shareInfo);
+    } else {
+      setServerControlsStopped();
+    }
+  }
+
+  function reconcileServerState() {
+    if (state.serverCommandSync) return state.serverCommandSync;
+
+    const commandSync = (async () => {
+      try {
+        while (state.serverRunning !== state.serverDesiredRunning) {
+          if (state.serverDesiredRunning) {
+            const info = await window.__TAURI__.core.invoke('start_server', {
+              port: state.serverDesiredPort
+            });
+            await applyServerInfo(info, false);
+          } else {
+            await window.__TAURI__.core.invoke('stop_server');
+            resetServerUi(false, false);
+          }
+          updateServerControls();
+        }
+      } catch (error) {
+        state.serverDesiredRunning = state.serverRunning;
+        setServerStopped(!state.serverRunning);
+        updateServerControls();
+        showToast(String(error), 'error');
+      }
+    })();
+
+    state.serverCommandSync = commandSync.finally(() => {
+      state.serverCommandSync = null;
+      if (state.serverRunning !== state.serverDesiredRunning) {
+        reconcileServerState();
+      }
+    });
+    return state.serverCommandSync;
   }
 
   function bindServerControls() {
@@ -354,48 +518,33 @@
     const button = $('startServerButton');
     if (!form || !portInput || !button) return;
 
-    resetServerUi();
+    resetServerUi(false);
+    state.serverDesiredPort = Number(portInput.value) || 5421;
     portInput.addEventListener('input', () => {
       const port = Number(portInput.value);
       if (Number.isInteger(port) && port > 0 && port <= 65535) {
+        state.serverDesiredPort = port;
         window.__TAURI__.core.invoke('set_preferred_port', { port }).catch(() => {});
       }
     });
 
-    form.addEventListener('submit', async (event) => {
+    form.addEventListener('submit', (event) => {
       event.preventDefault();
-      if (state.serverRunning) {
-        button.disabled = true;
-        button.textContent = t('stopping');
-        document.body.classList.add('server-stopped');
-        try {
-          await window.__TAURI__.core.invoke('stop_server');
-          resetServerUi();
-        } catch (error) {
-          document.body.classList.remove('server-stopped');
-          button.disabled = false;
-          button.textContent = t('stopShare');
-          showToast(String(error), 'error');
+      const nextRunning = !state.serverDesiredRunning;
+      if (nextRunning) {
+        const port = Number(portInput.value);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+          showToast(t('validPort'), 'warning');
+          return;
         }
-        return;
+        state.serverDesiredPort = port;
       }
 
-      const port = Number(portInput.value);
-      if (!Number.isInteger(port) || port < 1 || port > 65535) {
-        showToast(t('validPort'), 'warning');
-        return;
-      }
-
-      button.disabled = true;
-      button.textContent = t('starting');
-      document.body.classList.remove('server-stopped');
-      try {
-        const info = await window.__TAURI__.core.invoke('start_server', { port });
-        await applyServerInfo(info);
-      } catch (error) {
-        resetServerUi();
-        showToast(String(error), 'error');
-      }
+      state.serverDesiredRunning = nextRunning;
+      button.textContent = t(nextRunning ? 'stopShare' : 'startShare');
+      setServerStopped(!nextRunning);
+      updateServerControls();
+      reconcileServerState();
     });
   }
 

@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="/styles.css">
     <script src="/i18n.js"></script>
   </head>
-  <body data-app-role="admin">
+  <body class="server-stopped" data-app-role="admin">
     <header class="topbar admin">
       <div>
         <h1>FileShare</h1>
@@ -33,8 +33,10 @@
             <label class="address-picker">
               <select id="clientAddressSelect" class="client-address-select" aria-label="选择访问地址" data-i18n-aria-label="chooseAddress"></select>
             </label>
-            <span id="clientUrlText" data-i18n="loadingClientLink">加载客户端链接</span>
-            <button id="copyClientUrl" class="nav-link" type="button" data-i18n="copyLink">复制链接</button>
+            <div class="client-link-row">
+              <span id="clientUrlText" data-i18n="loadingClientLink">加载客户端链接</span>
+              <button id="copyClientUrl" class="copy-link-icon" type="button" aria-label="复制链接" data-i18n-aria-label="copyLink"></button>
+            </div>
           </div>
         </div>
       </div>

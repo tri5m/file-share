@@ -31,14 +31,7 @@
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
   --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --share-small-size: 64px;
-  --share-large-size: min(220px, 48vw);
-  --share-small-x: calc(100vw - 60px);
-  --share-small-y: calc(100vh - 60px);
-  --share-center-x: 50%;
-  --share-center-y: 50%;
-  --share-button-transform: translate(-50%, -50%);
-  --share-move-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --server-transition-duration: 780ms;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -113,6 +106,24 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  pointer-events: none;
+  background: var(--bg);
+  opacity: 0;
+  transition: opacity var(--server-transition-duration) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+body.server-stopped::before,
+body.server-ui-hiding::before,
+body.server-ui-revealing::before {
+  pointer-events: auto;
+  opacity: 1;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -123,16 +134,27 @@ body {
   background: var(--surface);
   border-bottom: 1px solid var(--line);
   box-shadow: var(--shadow-sm);
-  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity var(--server-transition-duration) cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.server-stopped .topbar {
+.server-stopped .topbar,
+.server-ui-hiding .topbar,
+.server-ui-revealing .topbar {
   opacity: 0;
   pointer-events: none;
 }
 
 .topbar.admin {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
   background: var(--surface);
+}
+
+.topbar.admin .top-actions {
+  display: grid;
+  grid-template-columns: minmax(210px, 1fr) minmax(210px, 313px);
+  width: 100%;
+  min-width: 0;
 }
 
 h1,
@@ -268,14 +290,18 @@ h2 {
 }
 
 .usage-tips {
-  display: flex;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
   align-items: center;
   gap: 10px;
+  width: 100%;
+  min-width: 0;
   font-size: 13px;
 }
 
 .usage-tips details {
   position: relative;
+  min-width: 0;
 }
 
 .usage-tips summary {
@@ -324,9 +350,11 @@ h2 {
 }
 
 .tips-note {
+  min-width: 0;
   max-width: 360px;
   color: var(--muted);
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .role-pill {
@@ -340,7 +368,7 @@ h2 {
 
 .client-share {
   display: grid;
-  grid-template-columns: 74px minmax(0, 260px);
+  grid-template-columns: 74px minmax(0, 230px);
   gap: 9px;
   align-items: center;
   max-width: 100%;
@@ -389,7 +417,21 @@ h2 {
 
 .client-link-box {
   display: grid;
-  gap: 5px;
+  gap: 8px;
+  min-width: 0;
+}
+
+.client-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.client-link-row > span {
+  flex: 0 1 auto;
+  max-width: calc(100% - 32px);
   min-width: 0;
 }
 
@@ -400,13 +442,12 @@ h2 {
   align-items: center;
   justify-self: start;
   gap: 5px;
-  width: min(100%, 166px);
+  width: min(100%, 168px);
   min-width: 0;
-  padding: 3px 4px 3px 5px;
+  padding: 2px 4px 2px 5px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-soft);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+  border-radius: 3px;
+  background: transparent;
 }
 
 .address-picker::after {
@@ -423,7 +464,6 @@ h2 {
 
 .address-picker:has(.client-address-select:focus) {
   border-color: var(--accent-soft-border);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
 .address-picker span {
@@ -473,6 +513,56 @@ h2 {
   line-height: 1.2;
 }
 
+.copy-link-icon {
+  position: relative;
+  flex: 0 0 24px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.copy-link-icon::before,
+.copy-link-icon::after {
+  content: "";
+  position: absolute;
+  width: 8px;
+  height: 9px;
+  border: 1.5px solid currentColor;
+  border-radius: 1px;
+}
+
+.copy-link-icon::before {
+  left: 7px;
+  top: 5px;
+}
+
+.copy-link-icon::after {
+  left: 10px;
+  top: 8px;
+  background: var(--surface);
+}
+
+.copy-link-icon:hover {
+  color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.copy-link-icon.copied {
+  color: var(--success);
+  background: var(--surface-success);
+}
+
+.copy-link-icon.copy-failed {
+  color: var(--danger);
+  background: var(--surface-danger);
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -514,7 +604,7 @@ h2 {
   height: 100%;
   margin: 0;
   padding: 0;
-  background: var(--bg);
+  background: transparent;
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -522,16 +612,6 @@ h2 {
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  animation: fadeInPanel 0.45s ease;
-}
-
-@keyframes fadeInPanel {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 
 .server-stopped .server-copy {
@@ -571,6 +651,14 @@ h2 {
 
 .server-panel .server-copy {
   grid-column: 1 / -1;
+  opacity: 1;
+  transition: opacity var(--server-transition-duration) cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.server-ui-hiding .server-copy,
+.server-ui-revealing .server-copy {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .server-form {
@@ -582,13 +670,13 @@ h2 {
 
 .server-form button {
   position: fixed;
-  left: var(--share-small-x);
-  top: var(--share-small-y);
+  left: calc(100vw - 60px);
+  top: calc(100vh - 60px);
   z-index: 1200;
   display: grid;
   place-items: center;
-  width: var(--share-small-size);
-  height: var(--share-small-size);
+  width: 64px;
+  height: 64px;
   min-height: 0;
   padding: 0;
   overflow: hidden;
@@ -601,15 +689,15 @@ h2 {
   line-height: 1.15;
   text-align: center;
   white-space: normal;
-  transform: var(--share-button-transform);
+  transform: translate(-50%, -50%);
   aspect-ratio: 1;
   transition:
-    left 0.64s var(--share-move-ease),
-    top 0.64s var(--share-move-ease),
-    width 0.64s var(--share-move-ease),
-    height 0.64s var(--share-move-ease),
+    left 1.05s cubic-bezier(0.22, 1, 0.36, 1),
+    top 1.05s cubic-bezier(0.22, 1, 0.36, 1),
+    width 1.05s cubic-bezier(0.22, 1, 0.36, 1),
+    height 1.05s cubic-bezier(0.22, 1, 0.36, 1),
     transform 0.2s ease,
-    font-size 0.64s var(--share-move-ease),
+    font-size 1.05s cubic-bezier(0.22, 1, 0.36, 1),
     box-shadow 0.45s ease,
     background 0.6s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0.2s ease;
@@ -617,6 +705,12 @@ h2 {
 
 .server-form button:disabled {
   opacity: .92;
+}
+
+.server-form button.share-button-animating {
+  transition: none;
+  transform-origin: center;
+  will-change: transform, font-size;
 }
 
 .server-stopped .port-input-group {
@@ -662,39 +756,42 @@ body:not(.server-stopped) .port-input-group {
   display: none;
 }
 
-.server-stopped .server-form button {
-  left: var(--share-center-x);
-  top: var(--share-center-y);
-  width: var(--share-large-size);
-  height: var(--share-large-size);
+.server-stopped .server-form button,
+.server-form button.share-button-stopped {
+  left: 50%;
+  top: 50%;
+  width: min(220px, 48vw);
+  height: min(220px, 48vw);
   font-size: clamp(22px, 5vw, 30px);
   background: linear-gradient(145deg, #818cf8, #4f46e5);
-  transform: var(--share-button-transform);
+  transform: translate(-50%, -50%);
   animation: share-breath 3.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-.server-stopped .server-form button:active {
-  transform: var(--share-button-transform) scale(.98);
+.server-stopped .server-form button:active,
+.server-form button.share-button-stopped:active {
+  transform: translate(-50%, -50%) scale(.98);
 }
 
-.server-stopped .server-form button:hover {
+.server-stopped .server-form button:hover,
+.server-form button.share-button-stopped:hover {
   background: linear-gradient(145deg, #6366f1, #4338ca);
   box-shadow:
     0 20px 48px rgba(79, 70, 229, 0.35),
     0 0 80px 20px rgba(99, 102, 241, 0.3);
-  transform: var(--share-button-transform) scale(1.02);
+  transform: translate(-50%, -50%) scale(1.02);
   animation-play-state: paused;
 }
 
-body:not(.server-stopped) .server-form button {
-  transform: var(--share-button-transform);
+body:not(.server-stopped) .server-form button:not(.share-button-stopped) {
+  transform: translate(-50%, -50%);
 }
 
-body:not(.server-stopped) .server-form button:active {
-  transform: var(--share-button-transform) scale(.98);
+body:not(.server-stopped) .server-form button:not(.share-button-stopped):active {
+  transform: translate(-50%, -50%) scale(.98);
 }
 
-body:not(.server-stopped) .server-form button:hover {
+body:not(.server-stopped) .server-form button:not(.share-button-stopped):hover {
   background: linear-gradient(145deg, #6366f1, #4338ca);
 }
 
@@ -704,13 +801,20 @@ body:not(.server-stopped) .server-form button:hover {
 }
 
 .list-panel {
-  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.4s;
+  transition:
+    opacity var(--server-transition-duration) cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear;
 }
 
-.server-stopped .list-panel {
+.server-stopped .list-panel,
+.server-ui-hiding .list-panel,
+.server-ui-revealing .list-panel {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
+  transition:
+    opacity var(--server-transition-duration) cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear var(--server-transition-duration);
 }
 
 .admin-footer {
@@ -730,7 +834,9 @@ body:not(.server-stopped) .server-form button:hover {
   color: var(--text-faint);
   font-size: 12px;
   line-height: 1.5;
-  transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.4s;
+  transition:
+    opacity var(--server-transition-duration) cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear;
 }
 
 .admin-footer a {
@@ -742,9 +848,14 @@ body:not(.server-stopped) .server-form button:hover {
   color: var(--accent);
 }
 
-.server-stopped .admin-footer {
+.server-stopped .admin-footer,
+.server-ui-hiding .admin-footer,
+.server-ui-revealing .admin-footer {
   opacity: 0;
   visibility: hidden;
+  transition:
+    opacity var(--server-transition-duration) cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear var(--server-transition-duration);
 }
 
 .stack {
@@ -1240,10 +1351,18 @@ pre {
     gap: 10px;
   }
 
+  .topbar.admin {
+    display: flex;
+  }
+
   .top-actions {
     width: 100%;
     justify-content: flex-start;
     min-width: 0;
+  }
+
+  .topbar.admin .top-actions {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .admin-footer {
