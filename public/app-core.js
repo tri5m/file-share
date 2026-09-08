@@ -232,6 +232,15 @@
 
   function applyShareInfo(info) {
     state.shareInfo = info;
+    if (state.role === 'client') {
+      const hostName = String(info.hostName || window.location.hostname).trim();
+      const host = $('shareHost');
+      if (host) {
+        host.textContent = t('sharedByHost', { name: hostName });
+        host.hidden = false;
+      }
+      document.title = `${hostName} · FileShare`;
+    }
     const qr = $('clientQr');
     const text = $('clientUrlText');
     const copy = $('copyClientUrl');

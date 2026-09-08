@@ -11,6 +11,43 @@ pub struct LanAddress {
     pub ip: String,
 }
 
+pub fn host_name() -> Option<String> {
+    let name = system_host_name()?;
+    let name = name.trim();
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+#[cfg(unix)]
+fn system_host_name() -> Option<String> {
+    let mut buffer = [0_u8; 256];
+    // The OS writes at most the provided buffer size. Require a terminator
+    // instead of displaying a truncated name on systems with longer limits.
+    if unsafe { libc::gethostname(buffer.as_mut_ptr().cast(), buffer.len()) } != 0 {
+        return None;
+    }
+    let length = buffer.iter().position(|byte| *byte == 0)?;
+    Some(String::from_utf8_lossy(&buffer[..length]).into_owned())
+}
+
+#[cfg(windows)]
+fn system_host_name() -> Option<String> {
+    use windows_sys::Win32::System::SystemInformation::{
+        GetComputerNameExW, ComputerNameDnsHostname,
+    };
+    let mut buffer = [0_u16; 256];
+    let mut length = buffer.len() as u32;
+    // Use the Unicode system API without launching a console process.
+    if unsafe { GetComputerNameExW(ComputerNameDnsHostname, buffer.as_mut_ptr(), &mut length) } == 0 {
+        return None;
+    }
+    Some(String::from_utf16_lossy(&buffer[..length as usize]))
+}
+
+#[cfg(not(any(unix, windows)))]
+fn system_host_name() -> Option<String> {
+    None
+}
+
 pub fn lan_ipv4_addresses() -> Vec<LanAddress> {
     let mut seen = HashSet::new();
     let mut addresses = Vec::new();

@@ -76,6 +76,20 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check frontend syntax and run regression tests
+        shell: bash
+        run: |
+          node --check public/app-core.js
+          node --check public/app-utils.js
+          node --check public/app.js
+          node --check public/i18n.js
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
+
+      - name: Check release changelist
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: test -s "docs/changelists/${GITHUB_REF_NAME}.md"
+
       - name: Prepare updater signing key
         shell: bash
         run: |
@@ -158,8 +172,7 @@ jobs:
             "$version" \
             "$updater_asset" \
             "$updater_asset.sig" \
-            "release-assets/${{ matrix.latest_name }}" \
-            "提升用户体验"
+            "release-assets/${{ matrix.latest_name }}"
 
       - name: Prepare Windows updater metadata
         if: runner.os == 'Windows'
@@ -175,8 +188,7 @@ jobs:
             "$version" \
             "$updater_asset" \
             "$updater_asset.sig" \
-            "release-assets/${{ matrix.latest_name }}" \
-            "提升用户体验"
+            "release-assets/${{ matrix.latest_name }}"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -190,6 +202,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ matrix.release_artifact_path || matrix.artifact_path }}
-          body: |
-            提升用户体验
+          body_path: docs/changelists/${{ github.ref_name }}.md
           prerelease: ${{ contains(github.ref_name, 'rc') }}

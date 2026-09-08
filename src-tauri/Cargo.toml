@@ -1,6 +1,6 @@
 [package]
 name = "fileshare"
-version = "1.0.10"
+version = "1.0.11"
 description = "LAN file sharing desktop app"
 authors = ["Trifolium Wang <trifolium.wang@gmail.com>"]
 license = "MIT"
@@ -35,4 +35,7 @@ uuid = { version = "1", features = ["v4"] }
 tower = { version = "0.5", features = ["util"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_System_SystemInformation"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"

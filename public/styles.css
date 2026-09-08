@@ -181,6 +181,9 @@ h2 {
   color: var(--muted);
 }
 
+.client-identity { min-width: 0; max-width: 100%; }
+.share-host { font-size: 13px; line-height: 1.4; overflow-wrap: anywhere; }
+
 .nav-link {
   color: var(--text);
   text-decoration: none;
@@ -299,43 +302,40 @@ h2 {
   font-size: 13px;
 }
 
-.usage-tips details {
-  position: relative;
-  min-width: 0;
-}
-
-.usage-tips summary {
+.usage-button {
   cursor: pointer;
   padding: 8px 14px;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-soft);
   color: var(--text);
-  list-style: none;
+  width: auto;
+  min-height: 0;
+  font-size: inherit;
   white-space: nowrap;
   transition: all 0.15s ease;
 }
 
-.usage-tips summary::-webkit-details-marker {
-  display: none;
-}
-
-.usage-tips summary:hover {
+.usage-button:hover {
   border-color: var(--accent-soft-border);
   background: var(--surface-hover);
 }
 
+.usage-modal[open] {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+
+.usage-modal .modal-shell { flex-shrink: 0; }
+
 .tips-content {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 280px;
-  padding: 16px;
-  background: var(--surface-overlay);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  box-shadow: var(--shadow-lg);
-  z-index: 100;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
 }
 
 .tips-content p {

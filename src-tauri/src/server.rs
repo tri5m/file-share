@@ -65,6 +65,7 @@ pub(crate) struct AppState {
 #[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerInfo {
+    pub host_name: Option<String>,
     pub port: u16,
     pub ip: String,
     pub url: String,
@@ -1115,6 +1116,7 @@ fn server_info(port: u16, lan_addresses: &[LanAddress]) -> Result<ServerInfo, qr
     }
     let primary = addresses[0].clone();
     Ok(ServerInfo {
+        host_name: crate::network::host_name(),
         port,
         ip: primary.ip,
         url: primary.url,

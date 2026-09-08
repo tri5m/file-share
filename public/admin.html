@@ -14,15 +14,7 @@
       </div>
       <div class="top-actions">
         <div class="usage-tips">
-          <details>
-            <summary data-i18n="usageTitle">使用说明</summary>
-            <div class="tips-content">
-              <p data-i18n="usage1">1. 启动服务后，扫描二维码或复制链接</p>
-              <p data-i18n="usage2">2. 在局域网内的其他设备打开链接</p>
-              <p data-i18n="usage3">3. 发布文本或共享文件即可分享</p>
-              <p data-i18n="usage4">4. 客户端可下载或复制共享内容</p>
-            </div>
-          </details>
+          <button class="usage-button" type="button" data-open="usageDialog" data-i18n="usageTitle">使用说明</button>
           <p class="tips-note" data-i18n="usageNote">指定客户端访问端口，启动后局域网设备可通过二维码或链接访问客户端页面。</p>
         </div>
         <div class="client-share">
@@ -74,9 +66,24 @@
     </main>
 
     <footer class="admin-footer">
-      <span data-i18n="qqGroup">QQ群：1079340875</span>
+      <span data-i18n="qqGroup">交流群：1079340875</span>
       <span><span data-i18n="emailLabel">Email：</span><a href="mailto:ft93923@gmail.com">ft93923@gmail.com</a></span>
     </footer>
+
+    <dialog id="usageDialog" class="modal usage-modal" aria-labelledby="usageDialogTitle">
+      <form method="dialog" class="modal-shell">
+        <div class="modal-head">
+          <h2 id="usageDialogTitle" data-i18n="usageTitle">使用说明</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
+        </div>
+      </form>
+      <div class="modal-body tips-content" tabindex="0">
+        <p data-i18n="usage1">1. 启动服务后，扫描二维码或复制链接</p>
+        <p data-i18n="usage2">2. 在局域网内的其他设备打开链接</p>
+        <p data-i18n="usage3">3. 发布文本或共享文件即可分享</p>
+        <p data-i18n="usage4">4. 客户端可下载或复制共享内容</p>
+      </div>
+    </dialog>
 
     <dialog id="textDialog" class="modal" data-focus="#textContent">
       <form method="dialog" class="modal-shell">

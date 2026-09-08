@@ -1219,7 +1219,7 @@ dependencies = [
 
 [[package]]
 name = "fileshare"
-version = "1.0.10"
+version = "1.0.11"
 dependencies = [
  "async-stream",
  "axum",
@@ -1227,6 +1227,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "futures-core",
+ "libc",
  "local-ip-address",
  "mime_guess",
  "qrcode",
