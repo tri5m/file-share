@@ -13,6 +13,9 @@
 
   const MAX_PATHLESS_PASTED_ADMIN_FILE_BYTES = 50 * 1024 * 1024;
   const SERVER_BUTTON_ANIMATION_MS = 780;
+  const uploadTasks = [];
+  let uploadTaskId = 0;
+  let uploadTicker = null;
 
   const state = {
     role: 'client',
@@ -21,6 +24,7 @@
     apiBase: '',
     events: null,
     downloadEvents: null,
+    shareEnded: false,
     isTauri: false,
     serverRunning: false,
     shareInfo: null,
@@ -156,8 +160,8 @@
         : `<div class="meta">${formatSize(item.size)} · ${formatTime(item.createdAt)}${downloadStatus}</div>`;
       const primaryAction = isText
         ? `<button class="secondary" data-action="copy" data-id="${item.id}">${t('copy')}</button>`
-        : (isMissing
-          ? `<button class="secondary" disabled type="button">${t('invalid')}</button>`
+        : (isMissing || (state.role === 'client' && state.shareEnded)
+          ? `<button class="secondary" disabled type="button">${t(isMissing ? 'invalid' : 'download')}</button>`
           : (state.role === 'admin'
             ? `<button class="secondary" data-action="reveal" data-id="${item.id}">${t('reveal')}</button>`
             : `<button class="secondary" data-action="download" data-id="${item.id}">${t('download')}</button>`));
@@ -168,7 +172,7 @@
         <article class="item${isMissing ? ' item-missing' : ''}">
           <div class="item-main">
             <div class="item-title">
-              <span class="badge">${badge}</span>
+              <span class="badge ${isText ? 'badge-text' : 'badge-file'}">${badge}</span>
               <strong>${title}</strong>
               ${titleAction}
             </div>
@@ -220,7 +224,7 @@
     applyShareInfo(info);
     setServerControlsRunning(info);
 
-    if (!wasRunning || !state.events || state.shareInfo?.port !== info.port) {
+    if (!wasRunning || !state.events || state.events.__apiBase !== state.apiBase) {
       await loadItems();
       connectEvents();
     }
@@ -557,9 +561,14 @@
     // 共享列表由服务端 SSE 推送，管理端和客户端保持同一份实时视图。
     const events = new EventSource(`${state.apiBase}/api/events`);
     state.events = events;
+    events.__apiBase = state.apiBase;
     events.__opened = false;
     events.__manuallyClosed = false;
+    events.addEventListener('share-stopped', () => {
+      if (state.events === events) handleShareStopped();
+    });
     events.onopen = () => {
+      if (events.__manuallyClosed || state.events !== events) return;
       events.__opened = true;
       status.textContent = t('synced');
     };
@@ -574,6 +583,7 @@
       }
     };
     events.onmessage = (event) => {
+      if (events.__manuallyClosed || state.events !== events) return;
       state.items = JSON.parse(event.data);
       render();
     };
@@ -589,6 +599,9 @@
     }
     const events = new EventSource(`${state.apiBase}/api/download-events`);
     state.downloadEvents = events;
+    events.addEventListener('share-stopped', () => {
+      if (state.downloadEvents === events) handleShareStopped();
+    });
     events.onerror = () => {
       if (events.__manuallyClosed || state.downloadEvents !== events) return;
       state.downloadStats = {};
@@ -603,6 +616,43 @@
       );
       updateDownloadStatuses();
     };
+  }
+
+  function handleShareStopped() {
+    for (const key of ['events', 'downloadEvents']) {
+      if (state[key]) {
+        state[key].__manuallyClosed = true;
+        state[key].close();
+        state[key] = null;
+      }
+    }
+    state.downloadStats = {};
+    if (state.role === 'admin') {
+      updateDownloadStatuses();
+      syncServerStatus();
+      return;
+    }
+    if (state.shareEnded) return;
+    state.shareEnded = true;
+    clearTimeout(state.reconnectToastTimer);
+    state.reconnectToastTimer = null;
+    $('status').textContent = t('shareEnded');
+    $('status').dataset.state = 'ended';
+    $('shareEndedNotice').hidden = false;
+    $('fileDialog')?.close();
+    $('textDialog')?.close();
+    document.querySelectorAll('[data-open="fileDialog"], [data-open="textDialog"], #fileInput, #textForm button[type="submit"]').forEach((button) => {
+      button.disabled = true;
+    });
+    for (const task of uploadTasks) {
+      if (!['queued', 'uploading', 'saving'].includes(task.status)) continue;
+      task.xhr?.abort();
+      task.status = 'failed';
+      task.error = t('uploadStopped');
+    }
+    pumpUploads();
+    render();
+    $('shareEndedNotice').scrollIntoView({ block: 'nearest' });
   }
 
   async function addAdminLocalFiles(paths) {
@@ -623,11 +673,7 @@
 
     try {
       // 这里只提交本机路径，实际文件仍留在原位置，避免复制大文件。
-      await request('/api/local-file', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ paths })
-      });
+      await window.__TAURI__.core.invoke('add_admin_local_files', { paths });
       fileHints.forEach((hint) => {
         hint.textContent = t('shareDropHint');
       });
@@ -722,36 +768,218 @@
   }
 
   async function publishTextContent(content) {
+    if (state.role === 'client' && state.shareEnded) throw new Error(t('shareEnded'));
     const text = String(content || '').trim();
     if (!text) return;
+
+    if (state.role === 'admin' && state.isTauri) {
+      await window.__TAURI__.core.invoke('publish_admin_text', { content: text });
+      return;
+    }
 
     await request('/api/text', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ content: text, source: state.role })
+      body: JSON.stringify({ content: text })
     });
   }
 
-  async function uploadFiles(files, options = {}) {
-    const pickedFiles = Array.from(files || []).filter((file) => file?.size > 0);
-    if (!pickedFiles.length) return [];
-
-    options.onStart?.(pickedFiles);
-    try {
-      const data = new FormData();
-      data.append('source', state.role);
-      for (const file of pickedFiles) {
-        data.append('file', file, file.name || 'file');
-      }
-      const result = await request('/api/upload', { method: 'POST', body: data });
-      options.onSuccess?.(pickedFiles, result);
-      return result;
-    } catch (error) {
-      options.onError?.(error);
-      throw error;
-    } finally {
-      options.onDone?.();
+  function enqueueUploads(files) {
+    if (state.shareEnded) {
+      showToast(t('shareEnded'), 'warning');
+      return;
     }
+    const pickedFiles = Array.from(files || []).filter((file) => file?.size > 0);
+    if (!pickedFiles.length) {
+      showToast(t('uploadEmptySelection'), 'warning');
+      return;
+    }
+    pickedFiles.forEach((file) => uploadTasks.push({
+      id: String(++uploadTaskId), file, name: file.name || 'file', size: file.size,
+      status: 'queued', sent: 0, percent: 0, speed: 0, error: '', xhr: null
+    }));
+    if (!$('fileDialog').open) $('fileDialog').showModal();
+    $('uploadDetails').open = true;
+    renderUploads();
+    pumpUploads();
+  }
+
+  function hasPendingUploads() {
+    return uploadTasks.some((task) => ['queued', 'uploading', 'saving'].includes(task.status));
+  }
+
+  function renderUploads() {
+    const queue = $('uploadQueue');
+    if (!queue) return;
+    queue.hidden = !uploadTasks.length;
+    const active = uploadTasks.filter((task) => ['queued', 'uploading', 'saving'].includes(task.status)).length;
+    const done = uploadTasks.filter((task) => task.status === 'completed').length;
+    const failed = uploadTasks.filter((task) => task.status === 'failed').length;
+    $('uploadSummary').textContent = t('uploadSummary', { active, done })
+      + (failed ? t('uploadSummaryFailed', { failed }) : '');
+    $('uploadKeepOpen').hidden = !active;
+    $('clearUploads').disabled = !uploadTasks.some((task) => ['completed', 'cancelled', 'failed'].includes(task.status));
+    const root = $('uploadTasks');
+    const ids = new Set(uploadTasks.map((task) => task.id));
+    Array.from(root.children).forEach((row) => {
+      if (!ids.has(row.dataset.uploadId)) row.remove();
+    });
+    for (const task of uploadTasks) {
+      let row = root.querySelector(`[data-upload-id="${task.id}"]`);
+      if (!row) {
+        row = document.createElement('div');
+        row.className = 'upload-task';
+        row.dataset.uploadId = task.id;
+        row.innerHTML = '<div class="upload-task-main"><div class="upload-task-heading"><span class="upload-task-name"></span><span class="upload-task-size"></span></div><div class="upload-task-status"></div><progress max="100"></progress></div><button type="button" class="secondary upload-task-action"></button>';
+        root.appendChild(row);
+      }
+      row.dataset.state = task.status;
+      const name = row.querySelector('.upload-task-name');
+      name.textContent = task.name;
+      name.title = task.name;
+      row.querySelector('.upload-task-size').textContent = formatSize(task.size);
+      const labels = {
+        queued: t('uploadQueued'), saving: t('uploadSaving'), completed: t('uploadSaved'),
+        cancelled: t('uploadCancelled'), failed: task.error
+      };
+      const stalled = task.status === 'uploading' && performance.now() - task.lastProgress > 15000;
+      row.querySelector('.upload-task-status').textContent = task.status === 'uploading'
+        ? `${t('uploadSending', { percent: task.percent })} · ${formatSize(task.sent)} / ${formatSize(task.size)} · ${stalled ? t('uploadStalled') : formatSpeed(task.speed)}`
+        : labels[task.status];
+      const progress = row.querySelector('progress');
+      progress.setAttribute('aria-label', task.name);
+      progress.value = task.percent;
+      progress.hidden = !['queued', 'uploading', 'saving'].includes(task.status);
+      const action = row.querySelector('button');
+      action.disabled = task.status === 'saving' || (state.shareEnded && task.status !== 'completed');
+      action.hidden = task.status === 'saving';
+      action.dataset.action = ['queued', 'uploading'].includes(task.status) ? 'cancel'
+        : task.status === 'completed' ? 'view' : 'retry';
+      action.textContent = t(action.dataset.action === 'cancel' ? 'uploadCancel'
+        : action.dataset.action === 'view' ? 'uploadView' : 'uploadRetry');
+    }
+  }
+
+  function pumpUploads() {
+    let active = uploadTasks.filter((task) => ['uploading', 'saving'].includes(task.status)).length;
+    for (const task of uploadTasks) {
+      if (state.shareEnded || active >= 2) break;
+      if (task.status !== 'queued') continue;
+      active++;
+      startUpload(task);
+    }
+    if (hasPendingUploads() && !uploadTicker) {
+      uploadTicker = setInterval(renderUploads, 1000);
+    } else if (!hasPendingUploads() && uploadTicker) {
+      clearInterval(uploadTicker);
+      uploadTicker = null;
+    }
+    renderUploads();
+  }
+
+  function startUpload(task) {
+    task.status = 'uploading';
+    task.lastProgress = performance.now();
+    let sampleAt = task.lastProgress;
+    let sampleBytes = 0;
+    const xhr = new XMLHttpRequest();
+    task.xhr = xhr;
+    let settled = false;
+    const finish = (status, error = '') => {
+      if (settled) return;
+      settled = true;
+      task.status = status;
+      task.error = error;
+      task.xhr = null;
+      if (status === 'completed') task.file = null;
+      pumpUploads();
+    };
+    xhr.upload.onprogress = (event) => {
+      if (settled || task.status !== 'uploading') return;
+      const now = performance.now();
+      task.sent = event.lengthComputable ? Math.round(task.size * event.loaded / event.total)
+        : Math.min(task.size, event.loaded);
+      task.percent = Math.min(99, Math.floor(task.sent / task.size * 100));
+      if (now - sampleAt >= 300) {
+        const speed = (task.sent - sampleBytes) / ((now - sampleAt) / 1000);
+        task.speed = task.speed ? task.speed * 0.5 + speed * 0.5 : speed;
+        sampleAt = now;
+        sampleBytes = task.sent;
+      }
+      task.lastProgress = now;
+      renderUploads();
+    };
+    xhr.upload.onload = () => {
+      if (settled) return;
+      task.status = 'saving';
+      task.sent = task.size;
+      task.percent = 100;
+      renderUploads();
+    };
+    xhr.onload = () => {
+      if (settled) return;
+      let result;
+      try { result = JSON.parse(xhr.responseText); } catch (_) { /* handled below */ }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        finish('failed', result?.error || t('requestFailed', { status: xhr.status }));
+      } else if (!Array.isArray(result) || !result[0]?.id) {
+        finish('failed', t('uploadUnexpectedResponse'));
+      } else {
+        task.itemId = result[0].id;
+        task.percent = 100;
+        // HTTP completion also updates this client if SSE is reconnecting.
+        const existing = new Set(state.items.map((item) => item.id));
+        state.items = [...result.filter((item) => !existing.has(item.id)), ...state.items];
+        render();
+        finish('completed');
+      }
+    };
+    xhr.onerror = () => finish('failed', t('uploadNetworkError'));
+    xhr.onabort = () => finish('cancelled');
+    try {
+      xhr.open('POST', `${state.apiBase}/api/upload`);
+      const data = new FormData();
+      data.append('file', task.file, task.name);
+      xhr.send(data);
+    } catch (error) {
+      finish('failed', error.message || t('uploadNetworkError'));
+    }
+  }
+
+  function bindUploads() {
+    if (state.role !== 'client') return;
+    $('uploadTasks').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button || button.disabled) return;
+      const task = uploadTasks.find((item) => item.id === button.closest('[data-upload-id]').dataset.uploadId);
+      if (!task) return;
+      if (button.dataset.action === 'cancel') {
+        if (task.status === 'uploading') task.xhr?.abort();
+        else if (task.status === 'queued') { task.status = 'cancelled'; pumpUploads(); }
+      } else if (button.dataset.action === 'retry' && ['failed', 'cancelled'].includes(task.status)) {
+        Object.assign(task, { status: 'queued', sent: 0, percent: 0, speed: 0, error: '' });
+        pumpUploads();
+      } else if (button.dataset.action === 'view') {
+        const button = Array.from($('items').querySelectorAll('[data-action="download"]'))
+          .find((node) => node.dataset.id === task.itemId);
+        if (button) {
+          $('fileDialog').close();
+          button.scrollIntoView({ block: 'center', behavior: 'smooth' });
+          button.focus({ preventScroll: true });
+        } else showToast(t('sourceMissing'), 'warning');
+      }
+    });
+    $('clearUploads').addEventListener('click', () => {
+      for (let i = uploadTasks.length - 1; i >= 0; i--) {
+        if (['completed', 'cancelled', 'failed'].includes(uploadTasks[i].status)) uploadTasks.splice(i, 1);
+      }
+      renderUploads();
+    });
+    window.addEventListener('beforeunload', (event) => {
+      if (!hasPendingUploads()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    });
   }
 
   function fileToBase64(file) {
@@ -927,10 +1155,13 @@
       if (files.length) {
         event.preventDefault();
         const adminPaste = state.role === 'admin' && window.__TAURI__?.core?.invoke;
-        const shareFiles = adminPaste ? sharePastedAdminFiles : uploadFiles;
+        if (!adminPaste) {
+          enqueueUploads(files);
+          return;
+        }
 
         if (adminPaste) setAdminDropPresentation('pending');
-        shareFiles(files, {
+        sharePastedAdminFiles(files, {
           onStart: () => showToast(t('pastingFiles', { count: files.length })),
           onSuccess: (_files, count) => {
             const sharedCount = Number(count) || files.length;
@@ -1014,6 +1245,7 @@
   }
 
   function bindForms() {
+    $('refreshShare')?.addEventListener('click', () => window.location.reload());
     document.querySelectorAll('[data-open]').forEach((button) => {
       button.addEventListener('click', () => {
         const dialog = $(button.dataset.open);
@@ -1033,64 +1265,41 @@
       event.preventDefault();
       const content = $('textContent').value.trim();
       if (!content) return;
-      await publishTextContent(content);
-      event.target.reset();
-      event.target.closest('dialog')?.close();
+      const form = event.target;
+      const submit = form.querySelector('button[type="submit"]');
+      if (submit.disabled) return;
+      form.querySelector('[data-submit-error]')?.remove();
+      submit.disabled = true;
+      try {
+        await publishTextContent(content);
+        form.reset();
+        form.closest('dialog')?.close();
+      } catch (error) {
+        const message = document.createElement('p');
+        message.dataset.submitError = '';
+        message.setAttribute('role', 'alert');
+        message.style.cssText = 'margin:0;color:var(--danger);overflow-wrap:anywhere';
+        message.textContent = error?.message || String(error);
+        form.appendChild(message);
+      } finally {
+        submit.disabled = state.shareEnded;
+      }
     });
 
     const fileForm = $('fileForm');
     const fileInput = $('fileInput');
     const dropZone = $('dropZone');
-    const fileHint = $('fileHint');
     const pickAdminFilesButton = $('pickAdminFilesButton');
     const adminDropZones = Array.from(document.querySelectorAll('.admin-file-drop'));
     if (fileForm && fileInput) {
-      let uploadingFiles = false;
-
-      const updateFileHint = (message) => {
-        if (!fileHint) return;
-        if (message) {
-          fileHint.textContent = message;
-          return;
-        }
-        const count = fileInput.files.length;
-        fileHint.textContent = count ? t('selectedAndPreparing', { count }) : t('autoUploadHint');
-      };
-
-      const uploadSelectedFiles = async () => {
-        if (!fileInput.files.length || uploadingFiles) return;
-        const files = Array.from(fileInput.files);
-        uploadingFiles = true;
-        updateFileHint(t('uploadingFiles', { count: files.length }));
-        if (dropZone) {
-          dropZone.classList.add('uploading');
-        }
-        try {
-          await uploadFiles(files);
-          fileForm.reset();
-          updateFileHint(t('uploadDone'));
-          window.setTimeout(() => updateFileHint(), 900);
-          fileForm.closest('dialog')?.close();
-        } finally {
-          uploadingFiles = false;
-          if (dropZone) {
-            dropZone.classList.remove('uploading');
-          }
-        }
-      };
-
-      fileInput.addEventListener('change', () => {
+      const uploadSelectedFiles = () => {
         if (!fileInput.files.length) return;
-        updateFileHint();
-        uploadSelectedFiles().catch((error) => {
-          uploadingFiles = false;
-          if (dropZone) {
-            dropZone.classList.remove('uploading');
-          }
-          updateFileHint(t('uploadFailed'));
-          showToast(error.message, 'error');
-        });
-      });
+        const files = Array.from(fileInput.files);
+        fileForm.reset();
+        enqueueUploads(files);
+      };
+
+      fileInput.addEventListener('change', uploadSelectedFiles);
 
       if (dropZone) {
         ['dragenter', 'dragover'].forEach((name) => {
@@ -1115,8 +1324,7 @@
             return;
           }
           if (event.dataTransfer?.files?.length) {
-            fileInput.files = event.dataTransfer.files;
-            uploadSelectedFiles().catch((error) => showToast(error.message, 'error'));
+            enqueueUploads(event.dataTransfer.files);
           }
         });
       }
@@ -1166,6 +1374,7 @@
         window.open(getDownloadUrl(item), '_blank');
       }
       if (action === 'download') {
+        if (state.shareEnded) return;
         const item = state.items.find((entry) => entry.id === id);
         if (!item) return;
         if (item.exists === false) {
@@ -1195,7 +1404,7 @@
       }
       if (action === 'delete' && state.role === 'admin') {
         try {
-          await request(`/api/items/${id}`, { method: 'DELETE' });
+          await window.__TAURI__.core.invoke('remove_admin_item', { id });
         } catch (error) {
           showToast(String(error), 'error');
         }
@@ -1210,6 +1419,7 @@
       state.apiBase = options.apiBase || '';
       bindQrPreview();
       bindForms();
+      bindUploads();
       bindPasteSharing();
       if (state.role === 'admin' && state.isTauri) {
         bindServerControls();

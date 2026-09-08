@@ -16,6 +16,7 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent},
     AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry,
 };
+use tokio::io::AsyncWriteExt;
 #[cfg(target_os = "macos")]
 use tauri::ActivationPolicy;
 
@@ -29,6 +30,7 @@ const TRAY_SHOW_ID: &str = "show";
 const TRAY_QUIT_ID: &str = "quit";
 
 struct ServerState {
+    lifecycle: tokio::sync::Mutex<()>,
     info: Mutex<Option<server::ServerInfo>>,
     preferred_port: Mutex<u16>,
     update_available: Mutex<bool>,
@@ -75,6 +77,21 @@ fn pick_admin_files() -> Result<Vec<String>, String> {
         .map(PathBuf::into_os_string)
         .map(|value| value.to_string_lossy().to_string())
         .collect())
+}
+
+#[tauri::command]
+async fn add_admin_local_files(paths: Vec<String>) -> Result<usize, String> {
+    server::add_admin_local_files(paths.into_iter().map(PathBuf::from).collect()).await
+}
+
+#[tauri::command]
+async fn publish_admin_text(content: String) -> Result<(), String> {
+    server::add_admin_text(content).await
+}
+
+#[tauri::command]
+async fn remove_admin_item(id: String) -> Result<(), String> {
+    server::remove_admin_item(id).await
 }
 
 #[tauri::command]
@@ -129,17 +146,13 @@ async fn share_pasted_admin_files(pathless_files: Vec<PastedFilePayload>) -> Res
             ));
         }
 
-        let target = match next_available_path(&dir, &safe_filename(&file.name)).await {
+        let target = match write_pasted_file(&dir, &safe_filename(&file.name), &bytes).await {
             Ok(target) => target,
             Err(error) => {
                 cleanup_files(&paths).await;
                 return Err(error);
             }
         };
-        if let Err(error) = tokio::fs::write(&target, bytes).await {
-            cleanup_files(&paths).await;
-            return Err(error.to_string());
-        }
         paths.push(target);
     }
 
@@ -205,7 +218,7 @@ async fn cleanup_files(paths: &[PathBuf]) {
     }
 }
 
-async fn next_available_path(dir: &Path, filename: &str) -> Result<PathBuf, String> {
+async fn write_pasted_file(dir: &Path, filename: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     let original = Path::new(filename);
     let stem = original
         .file_stem()
@@ -217,16 +230,39 @@ async fn next_available_path(dir: &Path, filename: &str) -> Result<PathBuf, Stri
         .map(|value| format!(".{value}"))
         .unwrap_or_default();
 
-    let mut candidate = dir.join(filename);
     let mut index = 1;
-    while tokio::fs::try_exists(&candidate)
-        .await
-        .map_err(|error| error.to_string())?
-    {
-        candidate = dir.join(format!("{stem} ({index}){ext}"));
-        index += 1;
+    let mut candidate = dir.join(filename);
+
+    loop {
+        let result = tokio::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&candidate)
+            .await;
+        let mut file = match result {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                candidate = dir.join(format!("{stem} ({index}){ext}"));
+                index += 1;
+                continue;
+            }
+            Err(error) => return Err(error.to_string()),
+        };
+
+        let write_result = async {
+            file.write_all(bytes).await?;
+            file.flush().await?;
+            file.sync_all().await
+        }
+        .await;
+        drop(file);
+
+        if let Err(error) = write_result {
+            let _ = tokio::fs::remove_file(&candidate).await;
+            return Err(error.to_string());
+        }
+        return Ok(candidate);
     }
-    Ok(candidate)
 }
 
 fn safe_filename(value: &str) -> String {
@@ -310,6 +346,7 @@ fn set_preferred_port(port: u16, state: tauri::State<'_, ServerState>) -> Result
 fn main() {
     tauri::Builder::default()
         .manage(ServerState {
+            lifecycle: tokio::sync::Mutex::new(()),
             info: Mutex::new(None),
             preferred_port: Mutex::new(DEFAULT_PORT),
             update_available: Mutex::new(false),
@@ -317,6 +354,9 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             pick_admin_files,
+            add_admin_local_files,
+            publish_admin_text,
+            remove_admin_item,
             download_admin_file,
             reveal_admin_file,
             share_pasted_admin_files,
@@ -638,6 +678,7 @@ async fn stop_share_from_tray(app: AppHandle) -> Result<(), String> {
 }
 
 async fn start_server_inner(port: u16, state: &ServerState) -> Result<server::ServerInfo, String> {
+    let _lifecycle = state.lifecycle.lock().await;
     if port == 0 {
         return Err(tr("invalid_port", &[]));
     }
@@ -662,6 +703,7 @@ async fn start_server_inner(port: u16, state: &ServerState) -> Result<server::Se
 }
 
 async fn stop_server_inner(state: &ServerState) -> Result<(), String> {
+    let _lifecycle = state.lifecycle.lock().await;
     server::stop().await?;
     *state.info.lock().map_err(|error| error.to_string())? = None;
     Ok(())

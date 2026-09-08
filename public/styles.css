@@ -1093,6 +1093,16 @@ button.danger:hover {
   font-size: 12px;
 }
 
+.badge-text {
+  color: var(--success);
+  background: var(--surface-success);
+  border-color: var(--success-soft-border);
+}
+
+.badge-file {
+  background: var(--surface-accent);
+}
+
 .meta {
   margin-top: 4px;
   color: var(--muted);
@@ -1165,6 +1175,22 @@ pre {
   padding: 28px 0;
   text-align: center;
 }
+
+.share-ended-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-soft);
+}
+
+.share-ended-notice[hidden] { display: none; }
+.share-ended-notice p { margin: 6px 0 0; font-size: 13px; color: var(--muted); }
+.share-ended-notice button { width: auto; flex-shrink: 0; }
+#status[data-state="ended"] { color: var(--muted); }
 
 .modal {
   width: min(540px, calc(100% - 32px));
@@ -1245,6 +1271,75 @@ pre {
 .icon-button:hover {
   color: var(--accent);
   background: var(--surface-hover);
+}
+
+.upload-queue {
+  margin-top: 16px;
+  border: 1px solid var(--accent-soft-border);
+  border-radius: 6px;
+  background: var(--surface-soft);
+}
+
+.upload-queue[hidden] { display: none; }
+
+.upload-queue summary {
+  padding: 12px 14px;
+  cursor: pointer;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+#uploadSummary {
+  margin-left: 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.upload-tasks {
+  max-height: 280px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 14px;
+}
+
+.upload-task {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.upload-task-main { flex: 1; min-width: 0; }
+.upload-task-heading { display: flex; gap: 12px; align-items: baseline; }
+.upload-task-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
+.upload-task-size { flex-shrink: 0; font-size: 11px; color: var(--muted); }
+.upload-task-status { margin: 5px 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.upload-task[data-state="uploading"] .upload-task-status,
+.upload-task[data-state="saving"] .upload-task-status { color: var(--accent); }
+.upload-task[data-state="completed"] .upload-task-status { color: var(--success); }
+.upload-task[data-state="failed"] .upload-task-status { color: var(--danger); }
+.upload-task progress { display: block; width: 100%; height: 5px; border: 0; border-radius: 3px; overflow: hidden; background: var(--line); accent-color: var(--accent); }
+.upload-task progress[hidden] { display: none; }
+.upload-task progress::-webkit-progress-bar { background: var(--line); }
+.upload-task progress::-webkit-progress-value { background: var(--accent); }
+.upload-task progress::-moz-progress-bar { background: var(--accent); }
+.upload-task-action { flex: 0 0 auto; }
+.upload-task-action[hidden] { display: none; }
+.upload-queue button { width: auto; min-height: 30px; padding: 5px 10px; font-size: 12px; white-space: nowrap; }
+.upload-queue-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px; }
+.upload-queue-footer small { color: var(--muted); font-size: 11px; }
+.upload-queue-footer button { margin-left: auto; }
+
+@media (max-width: 480px) {
+  .upload-queue summary { padding: 12px 10px; }
+  #uploadSummary { margin-left: 6px; font-size: 11px; }
+  .upload-tasks { padding: 0 10px; max-height: 300px; }
+  .upload-task { gap: 8px; }
+  .upload-task-heading { gap: 6px; }
+  .upload-queue-footer { padding: 10px; }
 }
 
 .upload-drop {

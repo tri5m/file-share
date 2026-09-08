@@ -86,10 +86,9 @@ npm run dev
 
 - `/` 和 `/client.html` 都会返回客户端页面
 - `/api/share-info` 返回局域网客户端访问链接、二维码和可用访问地址列表
-- `/api/local-file` 和 `DELETE /api/items/:id` 只允许服务端本机访问，供管理端使用
-- `/api/client-info` 是本机管理信息接口，当前管理端前端不直接依赖它
 - `/api/download-events` 通过 SSE 返回正在下载的文件和速率，供管理端列表展示下载状态
 - `/api/items/:id/download` 支持普通下载和 Range 下载
+- 管理端登记本机文件、发布文本和移除条目均通过 Tauri command，不暴露对应的 HTTP 管理接口
 
 ## 构建打包
 

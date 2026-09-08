@@ -28,12 +28,19 @@
     </header>
 
     <main class="layout single">
+      <section id="shareEndedNotice" class="share-ended-notice" role="alert" hidden>
+        <div>
+          <strong data-i18n="shareEnded">分享已停止</strong>
+          <p data-i18n="shareEndedHint">对方已停止分享，重新开启后请刷新页面。</p>
+        </div>
+        <button id="refreshShare" type="button" class="secondary" data-i18n="refreshPage">刷新页面</button>
+      </section>
       <section class="panel list-panel">
         <div class="section-head">
           <h2 data-i18n="sharedList">共享列表</h2>
           <div class="list-actions">
             <span id="status" data-i18n="connecting">连接中</span>
-            <button class="header-button text-action" data-open="textDialog" data-i18n="uploadTextAction">📝 上传文本</button>
+            <button class="header-button text-action" data-open="textDialog" data-i18n="uploadTextAction">📝 共享文本</button>
             <button class="header-button file-action" data-open="fileDialog" data-i18n="uploadFileAction">📁 上传文件</button>
           </div>
         </div>
@@ -44,14 +51,14 @@
     <dialog id="textDialog" class="modal" data-focus="#textContent">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">
-          <h2 data-i18n="uploadTextTitle">上传文本</h2>
+          <h2 data-i18n="uploadTextTitle">共享文本</h2>
           <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
         </div>
       </form>
       <div class="modal-body">
         <form id="textForm" class="stack">
           <textarea id="textContent" name="content" placeholder="输入要共享的文本" data-i18n-placeholder="textPlaceholder"></textarea>
-          <button type="submit" data-i18n="uploadTextSubmit">上传文本</button>
+          <button type="submit" data-i18n="uploadTextSubmit">共享文本</button>
         </form>
       </div>
     </dialog>
@@ -72,6 +79,16 @@
             <small id="fileHint" data-i18n="autoUploadHint">选择后自动上传</small>
           </label>
         </form>
+        <section id="uploadQueue" class="upload-queue" hidden aria-label="上传任务" data-i18n-aria-label="uploadTasks">
+          <details id="uploadDetails" open>
+            <summary><span data-i18n="uploadTasks">上传任务</span><span id="uploadSummary" role="status"></span></summary>
+            <div id="uploadTasks" class="upload-tasks"></div>
+            <div class="upload-queue-footer">
+              <small id="uploadKeepOpen" data-i18n="uploadKeepOpen">可关闭此弹窗，上传期间请勿关闭网页</small>
+              <button id="clearUploads" type="button" class="secondary" data-i18n="clearUploads">清除已结束</button>
+            </div>
+          </details>
+        </section>
       </div>
     </dialog>
 
