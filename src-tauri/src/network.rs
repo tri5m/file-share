@@ -76,23 +76,8 @@ pub fn lan_ipv4_addresses() -> Vec<LanAddress> {
             }
         }
     }
-    // A physical Ethernet/Wi-Fi address wins over all virtual adapters. Keep
-    // virtual addresses only as a fallback for machines that have no physical
-    // interface (for example a VM or a host using a bridge-only network).
-    let has_physical = candidates.iter().any(|(priority, _)| *priority >= 80);
-    candidates.retain(|(priority, _)| !has_physical || *priority >= 80);
     candidates.sort_by_key(|(priority, address)| (Reverse(*priority), address.ip.clone()));
-    let mut addresses: Vec<_> = candidates.into_iter().map(|(_, address)| address).collect();
-    if addresses.is_empty() {
-        if let Ok(IpAddr::V4(v4)) = local_ip_address::local_ip() {
-            if is_shareable_ipv4(v4) {
-                addresses.push(LanAddress {
-                    name: None,
-                    ip: v4.to_string(),
-                });
-            }
-        }
-    }
+    let addresses: Vec<_> = candidates.into_iter().map(|(_, address)| address).collect();
     addresses
 }
 
@@ -141,6 +126,9 @@ fn is_shareable_ipv4(address: Ipv4Addr) -> bool {
 fn interface_priority(interface: &str, display_name: Option<&str>) -> Option<u8> {
     let combined =
         format!("{} {}", interface, display_name.unwrap_or_default()).to_ascii_lowercase();
+    if combined.contains("thunderbolt") {
+        return Some(100);
+    }
     let excluded = [
         "lo", "loopback", "utun", "awdl", "llw", "gif", "stf", "p2p", "ipsec", "tap", "tun",
     ];
@@ -165,12 +153,24 @@ fn interface_priority(interface: &str, display_name: Option<&str>) -> Option<u8>
         "veth",
         "virbr",
         "ham",
+        "bridge",
+        "host-only",
+        "host only",
+        "nat",
+        "vpn",
+        "wireguard",
+        "podman",
+        "rancher",
+        "parallels",
+        "utm",
+        "multipass",
+        "colima",
     ];
     if virtual_keywords
         .iter()
         .any(|keyword| combined.contains(keyword))
     {
-        return Some(10);
+        return None;
     }
     let physical_keywords = [
         "ethernet",
@@ -207,8 +207,11 @@ mod tests {
             "DockerNAT",
             "VirtualBox Host-Only Network",
             "Hyper-V Virtual Ethernet Adapter",
+            "Bridge Adapter",
+            "WireGuard Tunnel",
+            "VirtualBox Host-Only Network",
         ] {
-            assert_eq!(interface_priority(name, None), Some(10), "{name}");
+            assert_eq!(interface_priority(name, None), None, "{name}");
         }
         assert_eq!(interface_priority("Wi-Fi", None), Some(100));
         assert_eq!(interface_priority("Ethernet", None), Some(100));
