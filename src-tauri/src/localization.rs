@@ -82,6 +82,13 @@ fn is_zh_locale() -> bool {
         return true;
     }
 
+    #[cfg(windows)]
+    {
+        if windows_prefers_zh() {
+            return true;
+        }
+    }
+
     #[cfg(target_os = "macos")]
     {
         if macos_prefers_zh() {
@@ -90,6 +97,18 @@ fn is_zh_locale() -> bool {
     }
 
     false
+}
+
+#[cfg(windows)]
+fn windows_prefers_zh() -> bool {
+    use windows_sys::Win32::Globalization::GetUserDefaultLocaleName;
+
+    let mut buffer = [0_u16; 85];
+    let length = unsafe { GetUserDefaultLocaleName(buffer.as_mut_ptr(), buffer.len() as i32) };
+    if length <= 0 {
+        return false;
+    }
+    String::from_utf16_lossy(&buffer[..length as usize]).starts_with("zh")
 }
 
 fn is_zh_language_tag(value: &str) -> bool {
