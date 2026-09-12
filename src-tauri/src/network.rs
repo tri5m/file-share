@@ -164,7 +164,6 @@ fn interface_priority(interface: &str, display_name: Option<&str>) -> Option<u8>
         "default switch",
         "veth",
         "virbr",
-        "bridge",
         "ham",
     ];
     if virtual_keywords
@@ -173,7 +172,20 @@ fn interface_priority(interface: &str, display_name: Option<&str>) -> Option<u8>
     {
         return Some(10);
     }
-    let physical_keywords = ["ethernet", "以太网", "wi-fi", "wifi", "wlan", "无线", "lan"];
+    let physical_keywords = [
+        "ethernet",
+        "以太网",
+        "wi-fi",
+        "wifi",
+        "wlan",
+        "无线",
+        "lan",
+        "airport",
+        "air port",
+        "thunderbolt",
+        "usb 10/100",
+        "usb 10/100/1000",
+    ];
     if physical_keywords
         .iter()
         .any(|keyword| combined.contains(keyword))
@@ -201,5 +213,8 @@ mod tests {
         assert_eq!(interface_priority("Wi-Fi", None), Some(100));
         assert_eq!(interface_priority("Ethernet", None), Some(100));
         assert_eq!(interface_priority("en0", Some("以太网")), Some(100));
+        assert_eq!(interface_priority("en0", Some("Wi-Fi")), Some(100));
+        assert_eq!(interface_priority("en5", Some("Thunderbolt Bridge")), Some(100));
+        assert_eq!(interface_priority("en6", Some("USB 10/100/1000 LAN")), Some(100));
     }
 }
