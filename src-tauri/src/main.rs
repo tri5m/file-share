@@ -665,7 +665,7 @@ fn tray_icon() -> Option<Image<'static>> {
 
 #[cfg(target_os = "windows")]
 fn platform_tray_icon() -> Option<Image<'static>> {
-    Image::from_bytes(include_bytes!("../icons/32x32.png"))
+    Image::from_bytes(include_bytes!("../icons/tray-windows.png"))
         .ok()
         .map(Image::to_owned)
 }
