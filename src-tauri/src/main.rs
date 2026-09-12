@@ -10,6 +10,8 @@ use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use localization::tr;
 use serde::{Deserialize, Serialize};
 use std::{path::{Path, PathBuf}, sync::Mutex, time::Duration};
+#[cfg(unix)]
+use std::{fs::OpenOptions, os::fd::AsRawFd};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -36,6 +38,51 @@ struct ServerState {
     update_available: Mutex<bool>,
     tray_menu: Mutex<Option<TrayMenuItems>>,
 }
+
+struct InstanceGuard {
+    #[cfg(unix)]
+    lock_file: std::fs::File,
+    #[cfg(windows)]
+    mutex: isize,
+}
+
+#[cfg(unix)]
+fn acquire_instance_guard() -> Result<InstanceGuard, String> {
+    let path = std::env::temp_dir().join("fileshare.instance.lock");
+    let lock_file = OpenOptions::new().create(true).read(true).write(true).open(path)
+        .map_err(|error| error.to_string())?;
+    if unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err("FileShare 已经在运行中".to_string());
+    }
+    Ok(InstanceGuard { lock_file })
+}
+
+#[cfg(windows)]
+fn acquire_instance_guard() -> Result<InstanceGuard, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::{
+        Foundation::{GetLastError, ERROR_ALREADY_EXISTS},
+        System::Threading::CreateMutexW,
+    };
+    let name: Vec<u16> = std::ffi::OsStr::new("Local\\FileShare.SingleInstance")
+        .encode_wide().chain(std::iter::once(0)).collect();
+    let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
+    if mutex.is_null() { return Err("无法创建 FileShare 单实例锁".to_string()); }
+    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+        unsafe { windows_sys::Win32::Foundation::CloseHandle(mutex) };
+        return Err("FileShare 已经在运行中".to_string());
+    }
+    Ok(InstanceGuard { mutex: mutex as isize })
+}
+
+#[cfg(unix)]
+impl Drop for InstanceGuard { fn drop(&mut self) { unsafe { libc::flock(self.lock_file.as_raw_fd(), libc::LOCK_UN); } } }
+
+#[cfg(windows)]
+impl Drop for InstanceGuard { fn drop(&mut self) { unsafe { windows_sys::Win32::Foundation::CloseHandle(self.mutex as *mut _); } } }
+
+unsafe impl Send for InstanceGuard {}
+unsafe impl Sync for InstanceGuard {}
 
 struct TrayMenuItems {
     toggle_share: MenuItem<Wry>,
@@ -344,7 +391,12 @@ fn set_preferred_port(port: u16, state: tauri::State<'_, ServerState>) -> Result
 }
 
 fn main() {
+    let instance_guard = match acquire_instance_guard() {
+        Ok(guard) => guard,
+        Err(error) => { eprintln!("{error}"); return; }
+    };
     tauri::Builder::default()
+        .manage(instance_guard)
         .manage(ServerState {
             lifecycle: tokio::sync::Mutex::new(()),
             info: Mutex::new(None),

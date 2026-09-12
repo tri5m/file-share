@@ -129,6 +129,7 @@ fn is_shareable_interface(name: &str) -> bool {
     let name = name.to_ascii_lowercase();
     let excluded_prefixes = [
         "lo", "utun", "awdl", "llw", "bridge", "gif", "stf", "p2p", "ipsec", "tap", "tun",
+        "veth", "vethernet", "docker", "br-", "virbr", "ham", "wsl",
     ];
     if excluded_prefixes
         .iter()
@@ -147,8 +148,35 @@ fn is_shareable_interface(name: &str) -> bool {
         "zerotier",
         "clash",
         "mihomo",
+        "vethernet",
+        "hyper-v",
+        "hyperv",
+        "wsl",
+        "docker",
+        "container",
+        "default switch",
     ];
     !excluded_keywords
         .iter()
         .any(|keyword| name.contains(keyword))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_shareable_interface;
+
+    #[test]
+    fn filters_windows_virtual_adapters() {
+        for name in [
+            "vEthernet (Default Switch)",
+            "vEthernet (WSL)",
+            "DockerNAT",
+            "VirtualBox Host-Only Network",
+            "Hyper-V Virtual Ethernet Adapter",
+        ] {
+            assert!(!is_shareable_interface(name), "{name}");
+        }
+        assert!(is_shareable_interface("Wi-Fi"));
+        assert!(is_shareable_interface("Ethernet"));
+    }
 }
