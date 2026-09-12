@@ -9,9 +9,15 @@ mod server;
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use localization::tr;
 use serde::{Deserialize, Serialize};
-use std::{path::{Path, PathBuf}, sync::Mutex, time::Duration};
 #[cfg(unix)]
 use std::{fs::OpenOptions, os::fd::AsRawFd};
+use std::{
+    path::{Path, PathBuf},
+    sync::Mutex,
+    time::Duration,
+};
+#[cfg(target_os = "macos")]
+use tauri::ActivationPolicy;
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -19,8 +25,6 @@ use tauri::{
     AppHandle, Emitter, Manager, RunEvent, WindowEvent, Wry,
 };
 use tokio::io::AsyncWriteExt;
-#[cfg(target_os = "macos")]
-use tauri::ActivationPolicy;
 
 const DEFAULT_PORT: u16 = 5421;
 const MAX_PATHLESS_PASTED_ADMIN_FILE_BYTES: usize = 50 * 1024 * 1024;
@@ -49,7 +53,11 @@ struct InstanceGuard {
 #[cfg(unix)]
 fn acquire_instance_guard() -> Result<InstanceGuard, String> {
     let path = std::env::temp_dir().join("fileshare.instance.lock");
-    let lock_file = OpenOptions::new().create(true).read(true).write(true).open(path)
+    let lock_file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .write(true)
+        .open(path)
         .map_err(|error| error.to_string())?;
     if unsafe { libc::flock(lock_file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
         return Err("FileShare 已经在运行中".to_string());
@@ -65,21 +73,39 @@ fn acquire_instance_guard() -> Result<InstanceGuard, String> {
         System::Threading::CreateMutexW,
     };
     let name: Vec<u16> = std::ffi::OsStr::new("Local\\FileShare.SingleInstance")
-        .encode_wide().chain(std::iter::once(0)).collect();
+        .encode_wide()
+        .chain(std::iter::once(0))
+        .collect();
     let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
-    if mutex.is_null() { return Err("无法创建 FileShare 单实例锁".to_string()); }
+    if mutex.is_null() {
+        return Err("无法创建 FileShare 单实例锁".to_string());
+    }
     if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         unsafe { windows_sys::Win32::Foundation::CloseHandle(mutex) };
         return Err("FileShare 已经在运行中".to_string());
     }
-    Ok(InstanceGuard { mutex: mutex as isize })
+    Ok(InstanceGuard {
+        mutex: mutex as isize,
+    })
 }
 
 #[cfg(unix)]
-impl Drop for InstanceGuard { fn drop(&mut self) { unsafe { libc::flock(self.lock_file.as_raw_fd(), libc::LOCK_UN); } } }
+impl Drop for InstanceGuard {
+    fn drop(&mut self) {
+        unsafe {
+            libc::flock(self.lock_file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
 
 #[cfg(windows)]
-impl Drop for InstanceGuard { fn drop(&mut self) { unsafe { windows_sys::Win32::Foundation::CloseHandle(self.mutex as *mut _); } } }
+impl Drop for InstanceGuard {
+    fn drop(&mut self) {
+        unsafe {
+            windows_sys::Win32::Foundation::CloseHandle(self.mutex as *mut _);
+        }
+    }
+}
 
 unsafe impl Send for InstanceGuard {}
 unsafe impl Sync for InstanceGuard {}
@@ -187,10 +213,7 @@ async fn share_pasted_admin_files(pathless_files: Vec<PastedFilePayload>) -> Res
         }
         if bytes.len() > MAX_PATHLESS_PASTED_ADMIN_FILE_BYTES {
             cleanup_files(&paths).await;
-            return Err(tr(
-                "paste_file_too_large",
-                &[("size", "50MB".to_string())],
-            ));
+            return Err(tr("paste_file_too_large", &[("size", "50MB".to_string())]));
         }
 
         let target = match write_pasted_file(&dir, &safe_filename(&file.name), &bytes).await {
@@ -393,7 +416,10 @@ fn set_preferred_port(port: u16, state: tauri::State<'_, ServerState>) -> Result
 fn main() {
     let instance_guard = match acquire_instance_guard() {
         Ok(guard) => guard,
-        Err(error) => { eprintln!("{error}"); return; }
+        Err(error) => {
+            eprintln!("{error}");
+            return;
+        }
     };
     tauri::Builder::default()
         .manage(instance_guard)
@@ -447,7 +473,9 @@ fn main() {
         .expect("error while building FileShare")
         .run(|app_handle, event| {
             if let RunEvent::WindowEvent {
-                ref label, ref event, ..
+                ref label,
+                ref event,
+                ..
             } = event
             {
                 if label == "main" {
@@ -497,7 +525,13 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
     )?;
     #[cfg(target_os = "windows")]
     let about = MenuItem::with_id(app, TRAY_ABOUT_ID, tr("about", &[]), true, None::<&str>)?;
-    let show = MenuItem::with_id(app, TRAY_SHOW_ID, tr("show_window", &[]), true, None::<&str>)?;
+    let show = MenuItem::with_id(
+        app,
+        TRAY_SHOW_ID,
+        tr("show_window", &[]),
+        true,
+        None::<&str>,
+    )?;
     let quit = MenuItem::with_id(app, TRAY_QUIT_ID, tr("quit", &[]), true, None::<&str>)?;
     #[cfg(target_os = "windows")]
     let menu = Menu::with_items(app, &[&show, &toggle_share, &check_update, &about, &quit])?;
@@ -780,7 +814,11 @@ fn set_tray_share_running(app: &AppHandle, running: bool) {
             tr("start_share", &[])
         });
         #[cfg(target_os = "macos")]
-        let icon = if running { tray_icon() } else { inactive_tray_icon() };
+        let icon = if running {
+            tray_icon()
+        } else {
+            inactive_tray_icon()
+        };
         #[cfg(not(target_os = "macos"))]
         let icon = platform_tray_icon();
         let _ = tray.set_icon(icon);
@@ -834,14 +872,11 @@ async fn check_for_updates_inner(app: AppHandle) -> Result<(), String> {
 
     println!("正在检查更新...");
 
-    let update = updater
-        .check()
-        .await
-        .map_err(|error| {
-            let err_msg = format!("检查更新失败: {}", error);
-            println!("{}", err_msg);
-            err_msg
-        })?;
+    let update = updater.check().await.map_err(|error| {
+        let err_msg = format!("检查更新失败: {}", error);
+        println!("{}", err_msg);
+        err_msg
+    })?;
 
     let Some(update) = update else {
         println!("当前已是最新版本");
@@ -875,7 +910,11 @@ async fn check_for_updates_inner(app: AppHandle) -> Result<(), String> {
         "发现新版本 {}\n当前版本: {}\n\n{}\n\n是否立即下载并安装？安装完成后应用将自动重启。",
         new_version,
         current_version,
-        if update_body.is_empty() { "查看 GitHub 发布页面了解更新内容" } else { &update_body }
+        if update_body.is_empty() {
+            "查看 GitHub 发布页面了解更新内容"
+        } else {
+            &update_body
+        }
     );
 
     let result = rfd::MessageDialog::new()
@@ -938,7 +977,11 @@ fn show_about_dialog(app: &AppHandle) {
     let version = app.package_info().version.to_string();
     let description = tr("about_desc", &[("version", version)]);
 
-    show_message(rfd::MessageLevel::Info, &tr("about_title", &[]), &description);
+    show_message(
+        rfd::MessageLevel::Info,
+        &tr("about_title", &[]),
+        &description,
+    );
 }
 
 fn show_message(level: rfd::MessageLevel, title: &str, description: &str) {

@@ -1,9 +1,10 @@
+use std::cmp::Reverse;
+#[cfg(target_os = "macos")]
+use std::process::Command;
 use std::{
     collections::{HashMap, HashSet},
     net::{IpAddr, Ipv4Addr},
 };
-#[cfg(target_os = "macos")]
-use std::process::Command;
 
 #[derive(Debug, Clone)]
 pub struct LanAddress {
@@ -32,12 +33,13 @@ fn system_host_name() -> Option<String> {
 #[cfg(windows)]
 fn system_host_name() -> Option<String> {
     use windows_sys::Win32::System::SystemInformation::{
-        GetComputerNameExW, ComputerNameDnsHostname,
+        ComputerNameDnsHostname, GetComputerNameExW,
     };
     let mut buffer = [0_u16; 256];
     let mut length = buffer.len() as u32;
     // Use the Unicode system API without launching a console process.
-    if unsafe { GetComputerNameExW(ComputerNameDnsHostname, buffer.as_mut_ptr(), &mut length) } == 0 {
+    if unsafe { GetComputerNameExW(ComputerNameDnsHostname, buffer.as_mut_ptr(), &mut length) } == 0
+    {
         return None;
     }
     Some(String::from_utf16_lossy(&buffer[..length as usize]))
@@ -50,26 +52,37 @@ fn system_host_name() -> Option<String> {
 
 pub fn lan_ipv4_addresses() -> Vec<LanAddress> {
     let mut seen = HashSet::new();
-    let mut addresses = Vec::new();
+    let mut candidates = Vec::new();
     let names = interface_display_names();
     if let Ok(netifs) = local_ip_address::list_afinet_netifas() {
         for (name, ip) in netifs {
-            if !is_shareable_interface(&name) {
+            let display_name = names.get(&name).cloned();
+            let Some(priority) = interface_priority(&name, display_name.as_deref()) else {
                 continue;
-            }
+            };
             if let IpAddr::V4(v4) = ip {
                 if is_shareable_ipv4(v4) {
                     let value = v4.to_string();
                     if seen.insert(value.clone()) {
-                        addresses.push(LanAddress {
-                            name: names.get(&name).cloned().or_else(|| Some(name)),
-                            ip: value,
-                        });
+                        candidates.push((
+                            priority,
+                            LanAddress {
+                                name: display_name.or_else(|| Some(name)),
+                                ip: value,
+                            },
+                        ));
                     }
                 }
             }
         }
     }
+    // A physical Ethernet/Wi-Fi address wins over all virtual adapters. Keep
+    // virtual addresses only as a fallback for machines that have no physical
+    // interface (for example a VM or a host using a bridge-only network).
+    let has_physical = candidates.iter().any(|(priority, _)| *priority >= 80);
+    candidates.retain(|(priority, _)| !has_physical || *priority >= 80);
+    candidates.sort_by_key(|(priority, address)| (Reverse(*priority), address.ip.clone()));
+    let mut addresses: Vec<_> = candidates.into_iter().map(|(_, address)| address).collect();
     if addresses.is_empty() {
         if let Ok(IpAddr::V4(v4)) = local_ip_address::local_ip() {
             if is_shareable_ipv4(v4) {
@@ -125,45 +138,54 @@ fn is_shareable_ipv4(address: Ipv4Addr) -> bool {
     true
 }
 
-fn is_shareable_interface(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    let excluded_prefixes = [
-        "lo", "utun", "awdl", "llw", "bridge", "gif", "stf", "p2p", "ipsec", "tap", "tun",
-        "veth", "vethernet", "docker", "br-", "virbr", "ham", "wsl",
+fn interface_priority(interface: &str, display_name: Option<&str>) -> Option<u8> {
+    let combined =
+        format!("{} {}", interface, display_name.unwrap_or_default()).to_ascii_lowercase();
+    let excluded = [
+        "lo", "loopback", "utun", "awdl", "llw", "gif", "stf", "p2p", "ipsec", "tap", "tun",
     ];
-    if excluded_prefixes
-        .iter()
-        .any(|prefix| name.starts_with(prefix))
-    {
-        return false;
+    if excluded.iter().any(|prefix| combined.starts_with(prefix)) {
+        return None;
     }
-
-    let excluded_keywords = [
-        "loopback",
+    let virtual_keywords = [
         "virtual",
-        "vmware",
-        "virtualbox",
-        "hyper-v",
-        "tailscale",
-        "zerotier",
-        "clash",
-        "mihomo",
         "vethernet",
         "hyper-v",
         "hyperv",
         "wsl",
         "docker",
         "container",
+        "vmware",
+        "virtualbox",
+        "tailscale",
+        "zerotier",
+        "clash",
+        "mihomo",
         "default switch",
+        "veth",
+        "virbr",
+        "bridge",
+        "ham",
     ];
-    !excluded_keywords
+    if virtual_keywords
         .iter()
-        .any(|keyword| name.contains(keyword))
+        .any(|keyword| combined.contains(keyword))
+    {
+        return Some(10);
+    }
+    let physical_keywords = ["ethernet", "以太网", "wi-fi", "wifi", "wlan", "无线", "lan"];
+    if physical_keywords
+        .iter()
+        .any(|keyword| combined.contains(keyword))
+    {
+        return Some(100);
+    }
+    Some(50)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::is_shareable_interface;
+    use super::interface_priority;
 
     #[test]
     fn filters_windows_virtual_adapters() {
@@ -174,9 +196,10 @@ mod tests {
             "VirtualBox Host-Only Network",
             "Hyper-V Virtual Ethernet Adapter",
         ] {
-            assert!(!is_shareable_interface(name), "{name}");
+            assert_eq!(interface_priority(name, None), Some(10), "{name}");
         }
-        assert!(is_shareable_interface("Wi-Fi"));
-        assert!(is_shareable_interface("Ethernet"));
+        assert_eq!(interface_priority("Wi-Fi", None), Some(100));
+        assert_eq!(interface_priority("Ethernet", None), Some(100));
+        assert_eq!(interface_priority("en0", Some("以太网")), Some(100));
     }
 }
