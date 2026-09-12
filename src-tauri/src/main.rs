@@ -5,6 +5,8 @@ mod downloads;
 mod localization;
 mod network;
 mod server;
+#[cfg(windows)]
+mod single_instance;
 
 use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use localization::tr;
@@ -43,11 +45,9 @@ struct ServerState {
     tray_menu: Mutex<Option<TrayMenuItems>>,
 }
 
+#[cfg(unix)]
 struct InstanceGuard {
-    #[cfg(unix)]
     lock_file: std::fs::File,
-    #[cfg(windows)]
-    mutex: isize,
 }
 
 #[cfg(unix)]
@@ -65,30 +65,6 @@ fn acquire_instance_guard() -> Result<InstanceGuard, String> {
     Ok(InstanceGuard { lock_file })
 }
 
-#[cfg(windows)]
-fn acquire_instance_guard() -> Result<InstanceGuard, String> {
-    use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::{
-        Foundation::{GetLastError, ERROR_ALREADY_EXISTS},
-        System::Threading::CreateMutexW,
-    };
-    let name: Vec<u16> = std::ffi::OsStr::new("Local\\FileShare.SingleInstance")
-        .encode_wide()
-        .chain(std::iter::once(0))
-        .collect();
-    let mutex = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
-    if mutex.is_null() {
-        return Err("无法创建 FileShare 单实例锁".to_string());
-    }
-    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-        unsafe { windows_sys::Win32::Foundation::CloseHandle(mutex) };
-        return Err("FileShare 已经在运行中".to_string());
-    }
-    Ok(InstanceGuard {
-        mutex: mutex as isize,
-    })
-}
-
 #[cfg(unix)]
 impl Drop for InstanceGuard {
     fn drop(&mut self) {
@@ -97,18 +73,6 @@ impl Drop for InstanceGuard {
         }
     }
 }
-
-#[cfg(windows)]
-impl Drop for InstanceGuard {
-    fn drop(&mut self) {
-        unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(self.mutex as *mut _);
-        }
-    }
-}
-
-unsafe impl Send for InstanceGuard {}
-unsafe impl Sync for InstanceGuard {}
 
 struct TrayMenuItems {
     toggle_share: MenuItem<Wry>,
@@ -414,10 +378,24 @@ fn set_preferred_port(port: u16, state: tauri::State<'_, ServerState>) -> Result
 }
 
 fn main() {
+    #[cfg(unix)]
     let instance_guard = match acquire_instance_guard() {
         Ok(guard) => guard,
         Err(error) => {
             eprintln!("{error}");
+            return;
+        }
+    };
+    #[cfg(windows)]
+    let instance_guard = match single_instance::acquire_or_notify() {
+        Ok(Some(guard)) => guard,
+        Ok(None) => return,
+        Err(error) => {
+            rfd::MessageDialog::new()
+                .set_title("FileShare")
+                .set_description(format!("无法打开 FileShare：{error}"))
+                .set_level(rfd::MessageLevel::Error)
+                .show();
             return;
         }
     };
@@ -459,6 +437,19 @@ fn main() {
             .build()?;
 
             setup_tray(app)?;
+
+            #[cfg(windows)]
+            {
+                let window = app.get_webview_window("main").expect("main window exists");
+                single_instance::mark_main_window(window.hwnd()?.0 as _)?;
+                let handle = app.handle().clone();
+                app.state::<single_instance::InstanceGuard>().listen(move || {
+                    let app = handle.clone();
+                    if let Err(error) = handle.run_on_main_thread(move || show_main_window(&app)) {
+                        eprintln!("FileShare failed to restore its window: {error}");
+                    }
+                })?;
+            }
 
             // 启动时在后台检查更新
             let app_handle = app.handle().clone();
@@ -707,6 +698,7 @@ fn show_main_window(app: &tauri::AppHandle) {
 
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
+        let _ = window.unminimize();
         let _ = window.set_focus();
     }
 }
