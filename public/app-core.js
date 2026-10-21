@@ -44,6 +44,19 @@
     serverCommandSync: null
   };
 
+  let editingTextId = null;
+  let editingTextOriginal = '';
+  let savingText = false;
+
+  function updateTextSaveButton() {
+    const button = $('saveTextChanges');
+    const editor = $('textPreviewContent');
+    if (!button || !editor) return;
+    button.disabled = savingText || state.role !== 'admin' || !state.isTauri || !state.serverRunning
+      || !editor.value.trim() || editor.value === editingTextOriginal;
+    button.textContent = t(savingText ? 'savingText' : 'saveTextChanges');
+  }
+
   function isEditableTarget(target) {
     if (!target) return false;
     return Boolean(target.closest?.('input, textarea, select, [contenteditable="true"]'));
@@ -150,7 +163,7 @@
         ? escapeHtml(previewText(item.content || item.title, 40))
         : escapeHtml(item.title);
       const titleAction = isText
-        ? ''
+        ? `<button class="inline-icon-button text-preview-button" type="button" data-action="view-text" data-id="${item.id}" aria-label="${t('viewText')}" title="${t('viewText')}" aria-haspopup="dialog" aria-controls="textPreviewDialog"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true" focusable="false"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>`
         : `<button class="inline-icon-button" data-action="copy-link" data-id="${item.id}" aria-label="${t('copyLink')}" title="${t('copyLink')}">🔗</button>`;
       const downloadStatus = state.role === 'admin' && !isText
         ? `<span class="download-status" data-download-status="${item.id}" hidden></span>`
@@ -1254,6 +1267,51 @@
   }
 
   function bindForms() {
+    const textEditorForm = $('textPreviewForm');
+    if (textEditorForm) {
+      const dialog = $('textPreviewDialog');
+      const editor = $('textPreviewContent');
+      const error = $('textPreviewError');
+      editor.addEventListener('input', () => {
+        error.hidden = true;
+        updateTextSaveButton();
+      });
+      dialog.addEventListener('cancel', (event) => {
+        if (savingText) event.preventDefault();
+      });
+      textEditorForm.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (savingText || state.role !== 'admin' || !state.isTauri || !editingTextId) return;
+        const content = editor.value;
+        if (!content.trim()) {
+          error.textContent = t('textCannotBeEmpty');
+          error.hidden = false;
+          return;
+        }
+        savingText = true;
+        editor.disabled = true;
+        const close = dialog.querySelector('.icon-button');
+        close.disabled = true;
+        error.hidden = true;
+        updateTextSaveButton();
+        try {
+          await window.__TAURI__.core.invoke('update_admin_text', { id: editingTextId, content });
+          const item = state.items.find((entry) => entry.id === editingTextId);
+          if (item) item.content = content;
+          render();
+          dialog.close();
+          showToast(t('textChangesSaved'), 'success');
+        } catch (failure) {
+          error.textContent = failure?.message || String(failure);
+          error.hidden = false;
+        } finally {
+          savingText = false;
+          editor.disabled = false;
+          close.disabled = false;
+          updateTextSaveButton();
+        }
+      });
+    }
     $('refreshShare')?.addEventListener('click', () => window.location.reload());
     document.querySelectorAll('[data-open]').forEach((button) => {
       button.addEventListener('click', () => {
@@ -1368,6 +1426,26 @@
       if (!button) return;
       if (button.disabled) return;
       const { action, id } = button.dataset;
+      if (action === 'view-text') {
+        const item = state.items.find((entry) => entry.id === id && entry.kind === 'text');
+        const dialog = $('textPreviewDialog');
+        const content = $('textPreviewContent');
+        if (!item || !dialog || !content) return;
+        const text = item.content ?? item.title ?? '';
+        if (state.role === 'admin') {
+          editingTextId = item.id;
+          editingTextOriginal = text;
+          content.value = text;
+          content.readOnly = !state.isTauri;
+          $('textPreviewError').hidden = true;
+          updateTextSaveButton();
+        } else {
+          content.textContent = text;
+        }
+        dialog.showModal();
+        content.scrollTop = 0;
+        return;
+      }
       if (action === 'reveal' && state.role === 'admin') {
         const item = state.items.find((entry) => entry.id === id);
         if (!item) return;

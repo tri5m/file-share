@@ -1071,6 +1071,29 @@ button.danger:hover {
   color: var(--accent);
 }
 
+.text-preview-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  border-color: transparent;
+  background: transparent;
+}
+
+.text-preview-button svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.text-preview-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .inline-icon-button.copied {
   border-color: var(--success-soft-border);
   background: var(--surface-success);
@@ -1222,6 +1245,52 @@ pre {
 .modal-body {
   padding: 20px;
 }
+
+.text-preview-modal[open] {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 40px);
+  max-height: calc(100dvh - 40px);
+  overflow: hidden;
+}
+
+.text-preview-modal .modal-shell {
+  flex: 0 0 auto;
+}
+
+.text-preview-content {
+  min-height: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.7;
+  user-select: text;
+}
+
+.text-editor-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.text-preview-editor {
+  flex: 1 1 auto;
+  height: min(50vh, 420px);
+  min-height: 0;
+  resize: none;
+  line-height: 1.7;
+}
+
+.text-preview-footer {
+  display: flex;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.text-preview-footer button { width: auto; }
+.text-preview-error { margin: 0; color: var(--danger); overflow-wrap: anywhere; }
 
 .qr-modal {
   width: min(420px, calc(100% - 32px));

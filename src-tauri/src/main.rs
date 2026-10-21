@@ -127,6 +127,11 @@ async fn publish_admin_text(content: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+async fn update_admin_text(id: String, content: String) -> Result<(), String> {
+    server::update_admin_text(id, content).await
+}
+
+#[tauri::command]
 async fn remove_admin_item(id: String) -> Result<(), String> {
     server::remove_admin_item(id).await
 }
@@ -412,6 +417,7 @@ fn main() {
             pick_admin_files,
             add_admin_local_files,
             publish_admin_text,
+            update_admin_text,
             remove_admin_item,
             download_admin_file,
             reveal_admin_file,

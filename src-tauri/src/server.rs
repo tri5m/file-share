@@ -414,6 +414,13 @@ pub async fn remove_admin_item(id: String) -> Result<(), String> {
         .map_err(|error| error.message)
 }
 
+pub async fn update_admin_text(id: String, content: String) -> Result<(), String> {
+    let state = running_state().await?;
+    update_text_item(&state, &id, content)
+        .await
+        .map_err(|error| error.message)
+}
+
 async fn running_state() -> Result<AppState, String> {
     let Some(handle) = SERVER_HANDLE.get() else {
         return Err(tr("server_not_started", &[]));
@@ -820,6 +827,26 @@ async fn download(
         }
     };
     Ok((response_headers, Body::from_stream(stream)).into_response())
+}
+
+async fn update_text_item(state: &AppState, id: &str, content: String) -> AppResult<()> {
+    if content.trim().is_empty() {
+        return Err(AppError::bad_request(tr("empty_text", &[])));
+    }
+    let _guard = state.lock.lock().await;
+    let mut items = read_items_unlocked(state).await?;
+    let item = items.iter_mut().find(|entry| entry.id == id)
+        .ok_or_else(|| AppError::not_found(tr("item_missing", &[])))?;
+    if item.kind != "text" {
+        return Err(AppError::bad_request(tr("text_only_edit", &[])));
+    }
+    item.title = text_title(&content);
+    item.size = content.len() as u64;
+    item.content = Some(content);
+    item.updated_at = now();
+    write_items_unlocked(state, &items).await?;
+    let _ = state.events.send(public_items(&items));
+    Ok(())
 }
 
 async fn remove_item(state: &AppState, id: &str) -> AppResult<()> {
@@ -1510,6 +1537,65 @@ mod tests {
         assert!(!active_upload.exists());
         assert!(user_file.exists());
         fs::remove_dir_all(dir).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn editing_text_persists_and_broadcasts_without_replacing_the_item() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+        let original = test_item("editable");
+        add_items(&state, vec![original.clone(), test_item("unchanged")]).await.unwrap();
+        let mut events = state.events.subscribe();
+        let content = "  修改后的中文文本\n第二行 <script>literal</script>\n ";
+
+        update_text_item(&state, &original.id, content.to_string()).await.unwrap();
+
+        let stored = read_items(&state).await.unwrap();
+        assert_eq!(stored.len(), 2);
+        assert_eq!(stored[0].id, original.id);
+        assert_eq!(stored[0].created_at, original.created_at);
+        assert_eq!(stored[0].source, original.source);
+        assert_ne!(stored[0].updated_at, original.updated_at);
+        assert_eq!(stored[0].content.as_deref(), Some(content));
+        assert_eq!(stored[0].size, content.len() as u64);
+        assert_eq!(stored[0].title, text_title(content));
+        assert_eq!(stored[1].content.as_deref(), Some("test"));
+        let broadcast = events.try_recv().unwrap();
+        assert_eq!(broadcast[0].content.as_deref(), Some(content));
+    }
+
+    #[tokio::test]
+    async fn editing_rejects_empty_missing_files_and_http_clients() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = test_state(dir.path());
+        let mut file = test_item("file");
+        file.kind = "file".to_string();
+        add_items(&state, vec![test_item("text"), file]).await.unwrap();
+        let before = fs::read(&state.data_path).await.unwrap();
+        let mut events = state.events.subscribe();
+
+        for (id, content, status) in [
+            ("text", " \n\t", StatusCode::BAD_REQUEST),
+            ("missing", "new text", StatusCode::NOT_FOUND),
+            ("file", "new text", StatusCode::BAD_REQUEST),
+        ] {
+            let error = update_text_item(&state, id, content.to_string()).await.unwrap_err();
+            assert_eq!(error.status, status);
+        }
+        let app = client_router(state.clone());
+        for (method, path) in [
+            (Method::PATCH, "/api/text/text"),
+            (Method::PUT, "/api/text/text"),
+            (Method::PATCH, "/api/items/text"),
+            (Method::PATCH, "/api/text"),
+        ] {
+            let response = app.clone().oneshot(Request::builder().method(method).uri(path)
+                .header("content-type", "application/json")
+                .body(Body::from(r#"{"content":"not allowed"}"#)).unwrap()).await.unwrap();
+            assert!(matches!(response.status(), StatusCode::NOT_FOUND | StatusCode::METHOD_NOT_ALLOWED));
+        }
+        assert_eq!(fs::read(&state.data_path).await.unwrap(), before);
+        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
     }
 
     #[tokio::test]

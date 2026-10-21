@@ -49,6 +49,16 @@
       </section>
     </main>
 
+    <dialog id="textPreviewDialog" class="modal text-preview-modal" aria-labelledby="textPreviewTitle">
+      <form method="dialog" class="modal-shell">
+        <div class="modal-head">
+          <h2 id="textPreviewTitle" data-i18n="textPreviewTitle">共享文本</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
+        </div>
+      </form>
+      <div id="textPreviewContent" class="modal-body text-preview-content" tabindex="0" role="region" aria-labelledby="textPreviewTitle"></div>
+    </dialog>
+
     <dialog id="textDialog" class="modal" data-focus="#textContent">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">

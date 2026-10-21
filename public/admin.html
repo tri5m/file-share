@@ -85,6 +85,22 @@
       </div>
     </dialog>
 
+    <dialog id="textPreviewDialog" class="modal text-preview-modal" aria-labelledby="textPreviewTitle">
+      <form method="dialog" class="modal-shell">
+        <div class="modal-head">
+          <h2 id="textPreviewTitle" data-i18n="textPreviewTitle">共享文本</h2>
+          <button class="icon-button" value="cancel" aria-label="关闭" data-i18n-aria-label="close">×</button>
+        </div>
+      </form>
+      <form id="textPreviewForm" class="modal-body text-editor-body">
+        <textarea id="textPreviewContent" class="text-preview-editor" rows="12" aria-labelledby="textPreviewTitle" required></textarea>
+        <p id="textPreviewError" class="text-preview-error" role="alert" hidden></p>
+        <div class="text-preview-footer">
+          <button id="saveTextChanges" type="submit" data-i18n="saveTextChanges" disabled>保存修改</button>
+        </div>
+      </form>
+    </dialog>
+
     <dialog id="textDialog" class="modal" data-focus="#textContent">
       <form method="dialog" class="modal-shell">
         <div class="modal-head">

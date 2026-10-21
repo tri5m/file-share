@@ -43,6 +43,8 @@ pub fn tr(key: &str, values: &[(&str, String)]) -> String {
         (false, "server_not_started") => "Not started",
         (true, "empty_text") => "文本不能为空",
         (false, "empty_text") => "Text is empty",
+        (true, "text_only_edit") => "只能修改文本条目",
+        (false, "text_only_edit") => "Only text items can be edited",
         (true, "admin_picker_required") => "管理端共享文件请使用系统文件选择器",
         (false, "admin_picker_required") => "Use the system file picker",
         (true, "please_select_file") => "请选择文件",
